@@ -113,6 +113,15 @@ async def create_event_description(message: Message, state: FSMContext):
 @router.message(AdminCreateEventState.event_date)
 async def create_event_date(message: Message, state: FSMContext):
     date_str = message.text.strip()
+    try:
+        datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        await message.answer(
+            "❌ Неверный формат даты.\n\n"
+            "Введите дату в формате <b>YYYY-MM-DD</b>\n"
+            "Пример: <b>2026-05-10</b>"
+        )
+        return
     date_ru = format_date_ru(date_str)
     await state.update_data(event_date=date_str)
     await state.set_state(AdminCreateEventState.event_time)
@@ -784,43 +793,36 @@ async def cancel_event_do(callback: CallbackQuery, state: FSMContext, db, bot):
 
 # ── Рандомбой ─────────────────────────────────────────────────
 
-# Хранилище участников рандомбоя (в памяти)
-_randoboy_active = False
-_randoboy_participants = {}  # {telegram_id: full_name}
-
-
 @router.message(F.text == "🎲 Рандомбой")
-async def randoboy_menu(message: Message, state: FSMContext, admin_ids: list[int]):
+async def randoboy_menu(message: Message, state: FSMContext, db, admin_ids: list[int]):
     if not is_admin(message.from_user.id, admin_ids):
         return
     await state.clear()
-    global _randoboy_active, _randoboy_participants
+    participants = db.randoboy_get_participants()
+    is_active = db.randoboy_is_active()
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Пуск Рандомбой", callback_data="randoboy_start")],
         [InlineKeyboardButton(text="📋 Список участников", callback_data="randoboy_list")],
         [InlineKeyboardButton(text="🏆 Определить победителя", callback_data="randoboy_winner")],
         [InlineKeyboardButton(text="🔄 Сбросить", callback_data="randoboy_reset")],
     ])
-    status = f"✅ Активен | Участников: {len(_randoboy_participants)}" if _randoboy_active else "⛔️ Не запущен"
-    await message.answer(
-        f"🎲 <b>Рандомбой</b>\n\nСтатус: {status}",
-        reply_markup=kb
-    )
+    status = f"✅ Активен | Участников: {len(participants)}" if is_active else "⛔️ Не запущен"
+    await message.answer(f"🎲 <b>Рандомбой</b>\n\nСтатус: {status}", reply_markup=kb)
 
 
 @router.callback_query(F.data == "randoboy_list")
-async def randoboy_list(callback: CallbackQuery, admin_ids: list[int]):
+async def randoboy_list(callback: CallbackQuery, db, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
         return
-    global _randoboy_participants
-    if not _randoboy_participants:
+    participants = db.randoboy_get_participants()
+    if not participants:
         await callback.message.answer("Участников пока нет.")
         await callback.answer()
         return
-    lines = [f"📋 <b>Участники Рандомбой ({len(_randoboy_participants)}):</b>\n"]
-    for i, (uid, name) in enumerate(_randoboy_participants.items(), 1):
-        lines.append(f"{i}. {name}")
+    lines = [f"📋 <b>Участники Рандомбой ({len(participants)}):</b>\n"]
+    for i, p in enumerate(participants, 1):
+        lines.append(f"{i}. {p['full_name']}")
     await callback.message.answer("\n".join(lines))
     await callback.answer()
 
@@ -830,11 +832,7 @@ async def randoboy_start(callback: CallbackQuery, db, bot, admin_ids: list[int])
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
         return
-    global _randoboy_active, _randoboy_participants
-    _randoboy_active = True
-    _randoboy_participants = {}
-
-    # Рассылаем всем подписчикам кнопку участия
+    db.randoboy_start()
     subscribers = db.get_subscribers()
     join_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎲 Участвовать в Рандомбой!", callback_data="randoboy_join")]
@@ -844,15 +842,13 @@ async def randoboy_start(callback: CallbackQuery, db, bot, admin_ids: list[int])
         try:
             await bot.send_message(
                 user["telegram_id"],
-                "🎲 <b>Рандомбой запущен!</b>\n\n"
-                "Нажмите кнопку ниже, чтобы принять участие!",
+                "🎲 <b>Рандомбой запущен!</b>\n\nНажмите кнопку ниже, чтобы принять участие!",
                 reply_markup=join_kb
             )
             sent += 1
         except Exception:
             pass
-
-    await callback.message.answer(f"✅ Рандомбой запущен! Сообщение отправлено {sent} подписчикам.", reply_markup=admin_menu())
+    await callback.message.answer(f"✅ Рандомбой запущен! Отправлено {sent} подписчикам.", reply_markup=admin_menu())
     await callback.answer()
 
 
@@ -861,80 +857,64 @@ async def randoboy_pick_winner(callback: CallbackQuery, db, bot, admin_ids: list
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
         return
-    global _randoboy_participants
-    if not _randoboy_participants:
+    import random
+    participants = db.randoboy_get_participants()
+    if not participants:
         await callback.message.answer("❌ Нет участников.")
         await callback.answer()
         return
-    import random
-    winner_id, winner_name = random.choice(list(_randoboy_participants.items()))
-    # Убираем победителя из списка чтобы не выбрать повторно
-    del _randoboy_participants[winner_id]
+    winner = random.choice(participants)
+    winner_id = winner["telegram_id"]
+    winner_name = winner["full_name"]
+    db.randoboy_remove(winner_id)
 
-    # Получаем username победителя если есть
     winner_user = db.get_user_by_telegram_id(winner_id)
     if winner_user and winner_user["username"]:
         winner_mention = f"@{winner_user['username']}"
     else:
-        winner_mention = f"<a href=\'tg://user?id={winner_id}\'>{winner_name}</a>"
+        winner_mention = f"<a href='tg://user?id={winner_id}'>{winner_name}</a>"
 
     broadcast_text = (
         f"🎲 <b>Рандомбой совершенно случайно и неумышленно выбрал {winner_mention}!</b>\n\n"
         f"🏆 Поздравляем!"
     )
-
-    # Отправляем всем подписчикам
+    remaining = db.randoboy_get_participants()
     subscribers = db.get_subscribers()
     for user in subscribers:
         try:
             await bot.send_message(user["telegram_id"], broadcast_text)
         except Exception:
             pass
-
     await callback.message.answer(
         f"✅ Победитель определён и объявлен!\n"
-        f"👤 {winner_name} (ID: {winner_id})\n"
-        f"Осталось участников: {len(_randoboy_participants)}"
+        f"👤 {winner_name}\nОсталось участников: {len(remaining)}"
     )
     await callback.answer()
 
 
 @router.callback_query(F.data == "randoboy_reset")
-async def randoboy_reset(callback: CallbackQuery, admin_ids: list[int]):
+async def randoboy_reset(callback: CallbackQuery, db, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
         return
-    global _randoboy_active, _randoboy_participants
-    _randoboy_active = False
-    _randoboy_participants = {}
+    db.randoboy_reset()
     await callback.message.answer("🔄 Рандомбой сброшен.")
     await callback.answer()
 
 
 @router.callback_query(F.data == "randoboy_join")
-async def randoboy_join(callback: CallbackQuery):
-    global _randoboy_active, _randoboy_participants
-    if not _randoboy_active:
+async def randoboy_join(callback: CallbackQuery, db):
+    if not db.randoboy_is_active():
         await callback.answer("Рандомбой уже завершён.", show_alert=True)
         return
-    user_id = callback.from_user.id
-    if user_id in _randoboy_participants:
+    joined = db.randoboy_join(callback.from_user.id, callback.from_user.full_name)
+    if not joined:
         await callback.answer("Вы уже зарегистрированы!", show_alert=True)
         return
-    _randoboy_participants[user_id] = callback.from_user.full_name
     await callback.answer("✅ Ваша заявка принята!", show_alert=True)
 
 
 # ── Блиц-квиз ─────────────────────────────────────────────────
-
-# Хранилище блиц-квиза (в памяти)
-_blitz_active = False
-_blitz_question = ""
-_blitz_answer = ""
-_blitz_mode = "first"  # 'first' или 'all'
-_blitz_duration = 60
-_blitz_winners = []
-_blitz_end_time = None
 
 
 @router.message(F.text == "⚡️ Блиц-квиз")
@@ -999,28 +979,26 @@ async def blitz_set_duration(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("blitz_mode_"), BlitzQuizState.mode)
 async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, admin_ids: list[int]):
     import asyncio, datetime
-    global _blitz_active, _blitz_question, _blitz_answer, _blitz_mode
-    global _blitz_duration, _blitz_winners, _blitz_end_time
-
     mode = callback.data.replace("blitz_mode_", "")
     data = await state.get_data()
     await state.clear()
 
-    _blitz_active = True
-    _blitz_question = data["blitz_question"]
-    _blitz_answer = data["blitz_answer"]
-    _blitz_mode = mode
-    _blitz_duration = data["blitz_duration"]
-    _blitz_winners = []
-    _blitz_end_time = datetime.datetime.now() + datetime.timedelta(seconds=_blitz_duration)
+    duration = data["blitz_duration"]
+    end_time = (datetime.datetime.now() + datetime.timedelta(seconds=duration)).isoformat()
+    db.blitz_start(
+        question=data["blitz_question"],
+        answer=data["blitz_answer"],
+        mode=mode,
+        duration=duration,
+        end_time=end_time,
+    )
 
-    # Рассылаем вопрос всем подписчикам
     subscribers = db.get_subscribers()
     photo_id = data.get("blitz_photo")
     question_text = (
         f"⚡️ <b>БЛИЦ-КВИЗ!</b>\n\n"
-        f"❓ {_blitz_question}\n\n"
-        f"⏱ Время на ответ: {_blitz_duration} секунд\n"
+        f"❓ {data['blitz_question']}\n\n"
+        f"⏱ Время на ответ: {duration} секунд\n"
         f"Напишите ответ прямо в этот чат!"
     )
     sent = 0
@@ -1038,30 +1016,30 @@ async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, ad
     await callback.message.answer(
         f"✅ Блиц-квиз запущен!\n"
         f"Вопрос отправлен {sent} подписчикам.\n"
-        f"Режим: {mode_text}\n"
-        f"Время: {_blitz_duration} сек.\n\n"
-        f"Через {_blitz_duration} секунд используйте кнопку <b>⚡️ Блиц-квиз</b> → чтобы завершить и увидеть победителей.",
+        f"Режим: {mode_text} | Время: {duration} сек.",
         reply_markup=admin_menu()
     )
     await callback.answer()
 
     # Автоматически завершаем квиз через N секунд
     async def finish_blitz():
-        await asyncio.sleep(_blitz_duration)
-        global _blitz_active
-        _blitz_active = False
-        if _blitz_winners:
+        await asyncio.sleep(duration)
+        session = db.blitz_get_session()
+        if not session or not session["active"]:
+            return
+        db.blitz_stop()
+        winners = db.blitz_get_winners()
+        if winners:
             lines = ["⚡️ <b>Блиц-квиз завершён!</b>\n\n🏆 Победители:"]
-            for i, (uid, name, username, ans) in enumerate(_blitz_winners, 1):
-                mention = f"@{username}" if username else f"tg://user?id={uid}"
-                lines.append(f"{i}. {name} ({mention}) — «{ans}»")
+            for i, w in enumerate(winners, 1):
+                winner_user = db.get_user_by_telegram_id(w["telegram_id"])
+                mention = f"@{winner_user['username']}" if winner_user and winner_user["username"] else w["full_name"]
+                lines.append(f"{i}. {mention}")
             lines.append("\n🎉 Поздравляем!")
             result_text = "\n".join(lines)
         else:
             result_text = "⚡️ Блиц-квиз завершён. Правильных ответов не было."
-        # Отправляем всем подписчикам
-        subscribers_list = db.get_subscribers()
-        for user in subscribers_list:
+        for user in db.get_subscribers():
             try:
                 await bot.send_message(user["telegram_id"], result_text)
             except Exception:
@@ -1073,40 +1051,35 @@ async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, ad
 @router.message(F.text & ~F.text.startswith("/"))
 async def blitz_catch_answer(message: Message, bot, db, admin_ids: list[int]):
     """Перехватываем ответы на блиц-квиз"""
-    global _blitz_active, _blitz_answer, _blitz_mode, _blitz_winners
     import datetime
-    if not _blitz_active:
+    session = db.blitz_get_session()
+    if not session or not session["active"]:
         return
-    if _blitz_end_time and datetime.datetime.now() > _blitz_end_time:
+    if session["end_time"] and datetime.datetime.now() > datetime.datetime.fromisoformat(session["end_time"]):
         return
 
     user_answer = message.text.strip().lower()
     user_id = message.from_user.id
     user_name = message.from_user.full_name
 
-    # Проверяем не отвечал ли уже
-    already_answered = any(w[0] == user_id for w in _blitz_winners)
-    if already_answered:
+    if db.blitz_winner_exists(user_id):
         return
 
-    if user_answer == _blitz_answer:
-        username = message.from_user.username
-        _blitz_winners.append((user_id, user_name, username, message.text.strip()))
+    if user_answer == session["answer"]:
+        db.blitz_add_winner(user_id, user_name)
         await message.answer("✅ Правильно! Ваш ответ засчитан!")
 
-        if _blitz_mode == "first":
-            # Останавливаем квиз
-            _blitz_active = False
-            mention = f"@{username}" if username else f"tg://user?id={user_id}"
+        if session["mode"] == "first":
+            db.blitz_stop()
+            username = message.from_user.username
+            mention = f"@{username}" if username else user_name
             result_text = (
                 f"⚡️ <b>Блиц-квиз завершён!</b>\n\n"
-                f"🏆 Победители:\n"
-                f"1. {user_name} ({mention}) — «{message.text.strip()}»\n\n"
+                f"🏆 Первый правильный ответ:\n"
+                f"1. {mention} — «{message.text.strip()}»\n\n"
                 f"🎉 Поздравляем!"
             )
-            # Отправляем всем подписчикам
-            subscribers_list = db.get_subscribers()
-            for sub in subscribers_list:
+            for sub in db.get_subscribers():
                 try:
                     await bot.send_message(sub["telegram_id"], result_text)
                 except Exception:

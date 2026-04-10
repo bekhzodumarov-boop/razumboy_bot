@@ -106,6 +106,44 @@ class Database:
             )
             """)
 
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS randoboy_session (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                active INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS randoboy_participants (
+                telegram_id INTEGER PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS blitz_session (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                active INTEGER NOT NULL DEFAULT 0,
+                question TEXT,
+                answer TEXT,
+                mode TEXT NOT NULL DEFAULT 'first',
+                duration INTEGER NOT NULL DEFAULT 60,
+                end_time TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS blitz_winners (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                full_name TEXT,
+                answered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
         # Миграция — добавляет новые колонки если их нет (БД удалять не нужно)
         self._migrate()
 
@@ -456,3 +494,106 @@ class Database:
                 ORDER BY sp.created_at ASC
             """)
             return cur.fetchall()
+
+    # ── Рандомбой ─────────────────────────────────────────────
+
+    def randoboy_start(self):
+        """Запустить новый Рандомбой — сбросить участников и поставить active=1."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM randoboy_participants")
+            conn.execute("""
+                INSERT INTO randoboy_session (id, active) VALUES (1, 1)
+                ON CONFLICT(id) DO UPDATE SET active=1, updated_at=CURRENT_TIMESTAMP
+            """)
+            conn.commit()
+
+    def randoboy_stop(self):
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO randoboy_session (id, active) VALUES (1, 0)
+                ON CONFLICT(id) DO UPDATE SET active=0, updated_at=CURRENT_TIMESTAMP
+            """)
+            conn.commit()
+
+    def randoboy_is_active(self) -> bool:
+        with self._connect() as conn:
+            row = conn.execute("SELECT active FROM randoboy_session WHERE id=1").fetchone()
+            return bool(row and row["active"])
+
+    def randoboy_join(self, telegram_id: int, full_name: str) -> bool:
+        """Добавить участника. Возвращает False если уже есть."""
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM randoboy_participants WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+            if exists:
+                return False
+            conn.execute(
+                "INSERT INTO randoboy_participants (telegram_id, full_name) VALUES (?, ?)",
+                (telegram_id, full_name)
+            )
+            conn.commit()
+            return True
+
+    def randoboy_get_participants(self) -> list:
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM randoboy_participants ORDER BY joined_at").fetchall()
+
+    def randoboy_remove(self, telegram_id: int):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM randoboy_participants WHERE telegram_id=?", (telegram_id,))
+            conn.commit()
+
+    def randoboy_reset(self):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM randoboy_participants")
+            conn.execute("""
+                INSERT INTO randoboy_session (id, active) VALUES (1, 0)
+                ON CONFLICT(id) DO UPDATE SET active=0, updated_at=CURRENT_TIMESTAMP
+            """)
+            conn.commit()
+
+    # ── Блиц-квиз ─────────────────────────────────────────────
+
+    def blitz_start(self, question: str, answer: str, mode: str, duration: int, end_time: str):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM blitz_winners")
+            conn.execute("""
+                INSERT INTO blitz_session (id, active, question, answer, mode, duration, end_time)
+                VALUES (1, 1, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    active=1, question=excluded.question, answer=excluded.answer,
+                    mode=excluded.mode, duration=excluded.duration, end_time=excluded.end_time,
+                    updated_at=CURRENT_TIMESTAMP
+            """, (question, answer, mode, duration, end_time))
+            conn.commit()
+
+    def blitz_stop(self):
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO blitz_session (id, active) VALUES (1, 0)
+                ON CONFLICT(id) DO UPDATE SET active=0, updated_at=CURRENT_TIMESTAMP
+            """)
+            conn.commit()
+
+    def blitz_get_session(self) -> Optional[sqlite3.Row]:
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM blitz_session WHERE id=1").fetchone()
+
+    def blitz_add_winner(self, telegram_id: int, full_name: str):
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO blitz_winners (telegram_id, full_name) VALUES (?, ?)",
+                (telegram_id, full_name)
+            )
+            conn.commit()
+
+    def blitz_get_winners(self) -> list:
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM blitz_winners ORDER BY answered_at").fetchall()
+
+    def blitz_winner_exists(self, telegram_id: int) -> bool:
+        with self._connect() as conn:
+            return bool(conn.execute(
+                "SELECT 1 FROM blitz_winners WHERE telegram_id=?", (telegram_id,)
+            ).fetchone())

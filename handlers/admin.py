@@ -301,19 +301,11 @@ async def registrations_prompt(message: Message, state: FSMContext, db, admin_id
         return
     buttons = []
     for event in events:
-        date_ru = format_date_ru(event["event_date"])
         buttons.append([InlineKeyboardButton(
-            text=f"📅 {event['title']} ({date_ru[:event['event_date'].rfind('.') if '.' in event['event_date'] else len(date_ru)]})",
-            callback_data=f"view_regs_{event['id']}"
-        )])
-    # Упрощённый вариант кнопок
-    buttons2 = []
-    for event in events:
-        buttons2.append([InlineKeyboardButton(
             text=f"📋 {event['title']} — {event['event_date']}",
             callback_data=f"view_regs_{event['id']}"
         )])
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons2)
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.answer("Выберите игру для просмотра заявок:", reply_markup=kb)
 
 
@@ -563,6 +555,9 @@ async def broadcast_custom_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AdminBroadcastState.custom_text)
 async def broadcast_custom_text(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Пожалуйста, отправьте текст поста. ✍️")
+        return
     await state.update_data(custom_text=message.text.strip())
     await state.set_state(AdminBroadcastState.custom_photo)
     await message.answer("Прикрепите картинку или напишите '-' если без картинки:")
@@ -825,8 +820,7 @@ async def randoboy_list(callback: CallbackQuery, admin_ids: list[int]):
         return
     lines = [f"📋 <b>Участники Рандомбой ({len(_randoboy_participants)}):</b>\n"]
     for i, (uid, name) in enumerate(_randoboy_participants.items(), 1):
-        username_part = f" (@{uid})" 
-        lines.append(f"{i}. {name}{username_part}")
+        lines.append(f"{i}. {name}")
     await callback.message.answer("\n".join(lines))
     await callback.answer()
 
@@ -958,6 +952,9 @@ async def blitz_menu(message: Message, state: FSMContext, admin_ids: list[int]):
 @router.message(BlitzQuizState.question)
 async def blitz_set_question(message: Message, state: FSMContext):
     from states import BlitzQuizState
+    if not message.text:
+        await message.answer("Введите текст вопроса. ✍️")
+        return
     await state.update_data(blitz_question=message.text.strip())
     await state.set_state(BlitzQuizState.photo)
     await message.answer("Прикрепите фото к вопросу или напишите <b>-</b> если без фото:")
@@ -975,6 +972,9 @@ async def blitz_set_photo(message: Message, state: FSMContext):
 @router.message(BlitzQuizState.answer)
 async def blitz_set_answer(message: Message, state: FSMContext):
     from states import BlitzQuizState
+    if not message.text:
+        await message.answer("Введите правильный ответ текстом. ✍️")
+        return
     await state.update_data(blitz_answer=message.text.strip().lower())
     await state.set_state(BlitzQuizState.duration)
     await message.answer("Введите время на ответ в секундах (например: 60):")

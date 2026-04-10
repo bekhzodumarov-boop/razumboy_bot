@@ -5,7 +5,6 @@ from aiogram.fsm.context import FSMContext
 from keyboards.reply import main_menu
 from states import AskQuestionState, SubscribeState
 from keyboards.inline import upcoming_event_kb
-from states import AskQuestionState
 
 router = Router()
 
@@ -75,8 +74,16 @@ def format_event(event) -> str:
     )
 
 
-# ── Пункт 10: Приветствие до /start ──────────────────────────
-# Обрабатываем любое первое сообщение от незнакомого пользователя
+# ── /cancel — выход из любого FSM состояния ──────────────────
+@router.message(F.text == "/cancel")
+async def cmd_cancel(message: Message, state: FSMContext):
+    current = await state.get_state()
+    await state.clear()
+    if current:
+        await message.answer("❌ Действие отменено. Возвращаемся в главное меню.", reply_markup=main_menu())
+    else:
+        await message.answer("Нечего отменять. Вы в главном меню.", reply_markup=main_menu())
+
 
 # ── Пункт 11, 12: /start — подписка + список игр ─────────────
 @router.message(F.text == "/start")
@@ -145,10 +152,7 @@ async def show_event_detail(callback: CallbackQuery, db):
                 reply_markup=upcoming_event_kb(event["id"])
             )
         else:
-            await callback.message.answer_photo(
-                photo=event["photo_file_id"],
-                reply_markup=upcoming_event_kb(event["id"])
-            )
+            await callback.message.answer_photo(photo=event["photo_file_id"])
             await callback.message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
     else:
         await callback.message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
@@ -174,6 +178,9 @@ async def ask_question(message: Message, state: FSMContext):
 
 @router.message(AskQuestionState.waiting_question)
 async def receive_question(message: Message, state: FSMContext, bot, admin_ids: list[int]):
+    if not message.text:
+        await message.answer("Пожалуйста, отправьте текстовый вопрос. ✍️")
+        return
     question = message.text.strip()
     # Пересылаем вопрос админам
     admin_text = (
@@ -255,14 +262,26 @@ async def subscribe_last_name(message: Message, state: FSMContext):
 
 @router.message(SubscribeState.gender)
 async def subscribe_gender(message: Message, state: FSMContext):
-    await state.update_data(gender=message.text.strip())
+    gender = message.text.strip()
+    if gender not in ("👨 Мужской", "👩 Женский"):
+        gender_kb = ReplyKeyboardMarkup(
+            keyboard=[[KB(text="👨 Мужской"), KB(text="👩 Женский")]],
+            resize_keyboard=True, one_time_keyboard=True
+        )
+        await message.answer("Пожалуйста, выберите пол с помощью кнопок:", reply_markup=gender_kb)
+        return
+    await state.update_data(gender=gender)
     await state.set_state(SubscribeState.age)
     await message.answer("Сколько вам <b>лет</b>?")
 
 
 @router.message(SubscribeState.age)
 async def subscribe_age(message: Message, state: FSMContext):
-    await state.update_data(age=message.text.strip())
+    age_text = message.text.strip()
+    if not age_text.isdigit() or not (5 <= int(age_text) <= 100):
+        await message.answer("Введите корректный возраст (число от 5 до 100):")
+        return
+    await state.update_data(age=age_text)
     await state.set_state(SubscribeState.phone)
     await message.answer(
         "Введите ваш <b>номер телефона</b> в формате +998_________:\n"

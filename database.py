@@ -364,6 +364,13 @@ class Database:
             """, (telegram_id, first_name, last_name, gender, age, phone))
             conn.commit()
 
+    def get_subscriber_profile(self, telegram_id) -> Optional[sqlite3.Row]:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT * FROM subscribers_profile WHERE telegram_id = ?", (telegram_id,)
+            )
+            return cur.fetchone()
+
     def get_all_subscriber_profiles(self) -> list:
         with self._connect() as conn:
             cur = conn.execute("""

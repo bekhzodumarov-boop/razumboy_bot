@@ -1,8 +1,9 @@
 import datetime
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton as KB
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import main_menu
+from states import AskQuestionState, SubscribeState
 from keyboards.inline import upcoming_event_kb
 from states import AskQuestionState
 
@@ -101,6 +102,9 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
     if events:
         await _show_events_list(message, events)
 
+    # Напоминание заполнить профиль если ещё не заполнен
+    await _remind_profile_if_missing(message, db)
+
 
 # ── Пункт 4: Ближайшие игры — список кнопок ──────────────────
 @router.message(F.text == "🎯 Ближайшие игры")
@@ -191,13 +195,37 @@ async def receive_question(message: Message, state: FSMContext, bot, admin_ids: 
 
 
 @router.message(F.text == "🏠 Главное меню")
-async def back_to_main(message: Message):
+async def back_to_main(message: Message, db):
     await message.answer("Главное меню:", reply_markup=main_menu())
+    await _remind_profile_if_missing(message, db)
+
+
+async def _remind_profile_if_missing(message: Message, db):
+    """Напоминает заполнить анкету, если профиль ещё не заполнен."""
+    profile = db.get_subscriber_profile(message.from_user.id)
+    if not profile:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📝 Заполнить профиль", callback_data="fill_profile")
+        ]])
+        await message.answer(
+            "👋 Кстати, вы ещё не заполнили профиль.\n"
+            "Это займёт меньше минуты и поможет нам лучше вас знать! 😊",
+            reply_markup=kb
+        )
+
+
+@router.callback_query(F.data == "fill_profile")
+async def fill_profile_callback(callback: CallbackQuery, state: FSMContext, db):
+    profile = db.get_subscriber_profile(callback.from_user.id)
+    if profile:
+        await callback.answer("Профиль уже заполнен ✅", show_alert=True)
+        return
+    await state.set_state(SubscribeState.first_name)
+    await callback.message.answer("Отлично! Давайте познакомимся 😊\n\nВведите ваше <b>имя</b>:")
+    await callback.answer()
 
 
 # ── Подписка с анкетой ────────────────────────────────────────
-from states import AskQuestionState, SubscribeState
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton as KB
 
 
 @router.message(F.text == "📬 Подписаться")

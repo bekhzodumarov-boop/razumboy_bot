@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from typing import Optional
 
@@ -5,6 +6,8 @@ from typing import Optional
 class Database:
     def __init__(self, db_path: str):
         self.db_path = db_path
+        # Создаём папку если не существует (нужно для Railway Volume /data/)
+        os.makedirs(os.path.dirname(db_path), exist_ok=True) if os.path.dirname(db_path) else None
         self._init_db()
 
     def _connect(self):

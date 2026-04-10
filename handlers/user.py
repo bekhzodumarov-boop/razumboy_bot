@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from states import ConfirmPlayersState
 
@@ -17,7 +17,14 @@ async def my_registrations(message: Message, db):
 
     regs = db.get_user_registrations(user["id"])
     if not regs:
-        await message.answer("У вас пока нет активных регистраций.")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📝 Зарегистрироваться на игру", callback_data="go_to_events")
+        ]])
+        await message.answer(
+            "У вас пока нет активных регистраций. 🙁\n\n"
+            "Хотите записаться на ближайшую игру?",
+            reply_markup=kb
+        )
         return
 
     from handlers.common import format_date_short
@@ -32,6 +39,19 @@ async def my_registrations(message: Message, db):
         )
 
     await message.answer("\n".join(lines))
+
+
+# ── Кнопка "Зарегистрироваться на игру" из раздела Мои регистрации ──
+
+@router.callback_query(F.data == "go_to_events")
+async def go_to_events(callback: CallbackQuery, db):
+    from handlers.common import _show_events_list
+    events = db.get_open_events()
+    if not events:
+        await callback.message.answer("Пока нет открытых игр. Следите за анонсами! 🔔")
+    else:
+        await _show_events_list(callback.message, events)
+    await callback.answer()
 
 
 # ── Подтверждение участия в день игры ─────────────────────────

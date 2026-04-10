@@ -130,6 +130,79 @@ class Database:
             except Exception:
                 pass
 
+        # Восстановить резервные данные если БД пустая (первый запуск на Railway Volume)
+        self._restore_backup_if_empty()
+
+    def _restore_backup_if_empty(self):
+        """Вставляет резервные данные один раз при первом запуске на чистой БД."""
+        with self._connect() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            if count > 0:
+                return  # БД уже заполнена — ничего не делаем
+
+            cur = conn.cursor()
+
+            # ── Пользователи ─────────────────────────────────
+            users = [
+                (248537708, 'Razumboy', 'RazumBoy', 'en', 1, 1, '2026-04-08 06:48:08'),
+                (8091630624, 'SRDproject', 'Qishloq Joylarni Barqaror Rivojlantirish Loyihasi', 'en', 1, 0, '2026-04-08 08:45:09'),
+                (5796853392, 'shokhrukhkamolov', 'Shokhrukh Kamolov', 'en', 1, 0, '2026-04-08 08:46:21'),
+                (163476178, 'BekhzodUmarov', 'Bekhzod Umarov', 'en', 1, 1, '2026-04-08 11:20:37'),
+                (711413, 'Dil_Bek', 'Dilshod_SAFO', 'ru', 1, 0, '2026-04-08 11:50:13'),
+                (608165005, 'dreamfoxer', 'Алишер', 'ru', 1, 0, '2026-04-08 11:51:44'),
+                (117521272, 'M_Azamov', "Muzaffar A'zamov", 'ru', 1, 0, '2026-04-08 11:58:38'),
+                (829331, 'CCO_Fargo', '#2006', 'ru', 1, 0, '2026-04-08 12:00:11'),
+                (459740033, 'rakhimov_kh7', 'Khojiakbar Rakhimov', 'ru', 1, 0, '2026-04-08 12:18:33'),
+                (347268664, 'erikmananov', 'erik mananov', 'ru', 1, 0, '2026-04-08 12:31:22'),
+                (229353196, 'master_job', 'Ralf', 'ru', 1, 0, '2026-04-08 12:42:22'),
+                (129519563, 'beha_umarov', 'Bekhruz', 'es', 1, 0, '2026-04-08 12:52:49'),
+                (65395, 'abuimronbek', 'No Name', 'en', 1, 0, '2026-04-08 13:20:00'),
+            ]
+            cur.executemany("""
+                INSERT INTO users (telegram_id, username, full_name, language_code, subscribed, is_admin, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, users)
+
+            # ── События ──────────────────────────────────────
+            events = [
+                (1, '🎯 Разумбой: стреляй и пой!',
+                 'Мы объединили морской бой с квизом и музыкой!',
+                 '2026-04-10', '18:30', 'WOW BAR, ул. Матбуотчилар, 17',
+                 'https://yandex.uz/maps/-/CPV6eOpR', '70 000 сум с игрока', None,
+                 'AgACAgIAAxkBAAIBX2nWNe1OPIE6adpipP_pKlkd98yJAALLFmsbOaaxSlf1Rd1-g-9oAQADAgADeQADOwQ',
+                 'open', '2026-04-08 11:03:07'),
+                (2, 'Razumbooo: 15 игра года',
+                 'Привет! Открываем регистрацию на пятнадцатую игру года! Супер-приз от Asialuxe Travel: тур во Вьетнам на 2 персоны!',
+                 '2026-04-11', '18:30', 'WOW BAR, ул. Матбуотчилар, 17',
+                 'https://yandex.uz/maps/-/CPV6eOpR', '70 000 сум с игрока', None,
+                 'AgACAgIAAxkBAAIB9WnWPRU9yKX9cewwKu7JYz88OjmAAAIIF2sbOaaxStBROwgkhJPMAQADAgADeQADOwQ',
+                 'open', '2026-04-08 11:35:12'),
+            ]
+            cur.executemany("""
+                INSERT INTO events (id, title, description, event_date, event_time, location,
+                    location_url, price_text, max_teams, photo_file_id, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, events)
+
+            # ── Регистрации ───────────────────────────────────
+            # user_id соответствует порядку вставки users выше (1-based)
+            regs = [
+                (1, 3, 'Шохрух', 8, 'шох', '+998998355500', '', 'confirmed', '2026-04-08 08:47:02'),
+                (1, 1, 'dfsd', 4, 'bek', '+998933977599', '', 'confirmed', '2026-04-08 11:23:29'),
+                (1, 4, 'dfsd', 4, 'fdsfsdf', '+9985151515', '', 'confirmed', '2026-04-08 11:29:07'),
+                (1, 6, 'Разумбой тест', 10, 'Разумбой', '+998944213280', 'Тест', 'confirmed', '2026-04-08 11:53:01'),
+                (1, 12, 'Viva Sicilia', 2, 'Stefano', '+39333174', '', 'confirmed', '2026-04-08 13:01:08'),
+                (2, 1, 'Uga', 3, 'beka', '+998999999999', '', 'confirmed', '2026-04-08 11:35:45'),
+                (2, 6, 'Разумбуууууу', 12, 'Разумбойник', '+998944213280', 'Тест', 'confirmed', '2026-04-08 11:53:49'),
+                (2, 12, 'Viva Sicilia', 1, 'Marcello', '+393331742680', 'Это тест', 'confirmed', '2026-04-08 12:58:31'),
+            ]
+            cur.executemany("""
+                INSERT INTO registrations (event_id, user_id, team_name, team_size, captain_name, phone, comment, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, regs)
+
+            conn.commit()
+
     # ── Пользователи ──────────────────────────────────────────
 
     def upsert_user(self, telegram_id, username, full_name, language_code, is_admin=False):

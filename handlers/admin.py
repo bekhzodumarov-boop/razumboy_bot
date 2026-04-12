@@ -1048,6 +1048,41 @@ async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, ad
     asyncio.create_task(finish_blitz())
 
 
+# ── База подписчиков (экспорт) ────────────────────────────────
+
+@router.message(F.text == "📥 База подписчиков")
+async def export_subscribers(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    await state.clear()
+    profiles = db.get_all_subscriber_profiles()
+    if not profiles:
+        await message.answer("База подписчиков пуста.")
+        return
+
+    lines = ["№,Имя,Фамилия,Пол,Возраст,Телефон,Username,Telegram ID,Дата регистрации"]
+    for i, p in enumerate(profiles, 1):
+        username = f"@{p['username']}" if p.get('username') else ""
+        lines.append(
+            f"{i},"
+            f"\"{p['first_name'] or ''}\","
+            f"\"{p['last_name'] or ''}\","
+            f"\"{p['gender'] or ''}\","
+            f"\"{p['age'] or ''}\","
+            f"{p['phone'] or ''},"
+            f"{username},"
+            f"{p['telegram_id']},"
+            f"{p['created_at'][:10]}"
+        )
+
+    csv_content = "\n".join(lines).encode("utf-8-sig")
+    filename = "subscribers_profile.csv"
+    await message.answer_document(
+        document=BufferedInputFile(csv_content, filename=filename),
+        caption=f"📥 База подписчиков — {len(profiles)} чел."
+    )
+
+
 @router.message(F.text & ~F.text.startswith("/"))
 async def blitz_catch_answer(message: Message, bot, db, admin_ids: list[int]):
     """Перехватываем ответы на блиц-квиз"""
@@ -1084,38 +1119,3 @@ async def blitz_catch_answer(message: Message, bot, db, admin_ids: list[int]):
                     await bot.send_message(sub["telegram_id"], result_text)
                 except Exception:
                     pass
-
-
-# ── База подписчиков (экспорт) ────────────────────────────────
-
-@router.message(F.text == "📥 База подписчиков")
-async def export_subscribers(message: Message, state: FSMContext, db, admin_ids: list[int]):
-    if not is_admin(message.from_user.id, admin_ids):
-        return
-    await state.clear()
-    profiles = db.get_all_subscriber_profiles()
-    if not profiles:
-        await message.answer("База подписчиков пуста.")
-        return
-
-    lines = ["№,Имя,Фамилия,Пол,Возраст,Телефон,Username,Telegram ID,Дата регистрации"]
-    for i, p in enumerate(profiles, 1):
-        username = f"@{p['username']}" if p.get('username') else ""
-        lines.append(
-            f"{i},"
-            f"\"{p['first_name'] or ''}\","
-            f"\"{p['last_name'] or ''}\","
-            f"\"{p['gender'] or ''}\","
-            f"\"{p['age'] or ''}\","
-            f"{p['phone'] or ''},"
-            f"{username},"
-            f"{p['telegram_id']},"
-            f"{p['created_at'][:10]}"
-        )
-
-    csv_content = "\n".join(lines).encode("utf-8-sig")
-    filename = "subscribers_profile.csv"
-    await message.answer_document(
-        document=BufferedInputFile(csv_content, filename=filename),
-        caption=f"📥 База подписчиков — {len(profiles)} чел."
-    )

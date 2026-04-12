@@ -6,7 +6,7 @@ def main_menu():
         keyboard=[
             [KeyboardButton(text="🎯 Ближайшие игры"), KeyboardButton(text="📝 Регистрация")],
             [KeyboardButton(text="📸 Фотографии с игр"), KeyboardButton(text="🗂 Мои регистрации")],
-            [KeyboardButton(text="📬 Подписаться"), KeyboardButton(text="❓ Задать вопрос")],
+            [KeyboardButton(text="📬 Получать анонсы"), KeyboardButton(text="❓ Задать вопрос")],
         ],
         resize_keyboard=True,
     )

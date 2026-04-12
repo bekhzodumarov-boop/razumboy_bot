@@ -235,7 +235,7 @@ async def fill_profile_callback(callback: CallbackQuery, state: FSMContext, db):
 # ── Подписка с анкетой ────────────────────────────────────────
 
 
-@router.message(F.text == "📬 Подписаться")
+@router.message(F.text == "📬 Получать анонсы")
 async def subscribe_start(message: Message, state: FSMContext, db):
     db.set_subscription(message.from_user.id, True)
     await state.set_state(SubscribeState.first_name)

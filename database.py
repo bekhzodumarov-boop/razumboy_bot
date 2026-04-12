@@ -295,11 +295,25 @@ class Database:
             return cur.fetchall()
 
     def get_open_events(self) -> list:
+        import datetime
+        today = datetime.date.today().strftime("%Y-%m-%d")
         with self._connect() as conn:
             cur = conn.execute("""
-                SELECT * FROM events WHERE status = 'open'
+                SELECT * FROM events
+                WHERE status = 'open' AND event_date >= ?
                 ORDER BY event_date ASC, event_time ASC
-            """)
+            """, (today,))
+            return cur.fetchall()
+
+    def get_past_events(self) -> list:
+        import datetime
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT * FROM events
+                WHERE event_date < ? OR status != 'open'
+                ORDER BY event_date DESC, event_time DESC
+            """, (today,))
             return cur.fetchall()
 
     def get_upcoming_event(self) -> Optional[sqlite3.Row]:

@@ -13,6 +13,7 @@ def confirm_registration_kb():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm_registration")],
+            [InlineKeyboardButton(text="✏️ Изменить данные", callback_data="edit_registration")],
             [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_registration")],
         ]
     )

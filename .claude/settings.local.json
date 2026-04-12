@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:tashkent.shakerquiz.ru)",
+      "WebFetch(domain:tashkent.findquiz.ru)"
+    ]
+  }
+}

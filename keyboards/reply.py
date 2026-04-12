@@ -19,10 +19,21 @@ def admin_menu():
             [KeyboardButton(text="📨 Рассылка"), KeyboardButton(text="📥 Заявки")],
             [KeyboardButton(text="📊 Экспорт в Excel"), KeyboardButton(text="👥 Подписчики")],
             [KeyboardButton(text="❌ Отменить игру"), KeyboardButton(text="📬 История рассылок")],
+            [KeyboardButton(text="🗓 Прошедшие игры"), KeyboardButton(text="📥 База подписчиков")],
             [KeyboardButton(text="🎲 Рандомбой"), KeyboardButton(text="⚡️ Блиц-квиз")],
-            [KeyboardButton(text="📥 База подписчиков"), KeyboardButton(text="🏠 Главное меню")],
+            [KeyboardButton(text="🏠 Главное меню")],
         ],
         resize_keyboard=True,
+    )
+
+
+def phone_request_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📱 Поделиться номером", request_contact=True)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
     )
 
 

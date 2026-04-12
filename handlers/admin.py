@@ -1048,6 +1048,54 @@ async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, ad
     asyncio.create_task(finish_blitz())
 
 
+# ── Прошедшие игры ────────────────────────────────────────────
+
+@router.message(F.text == "🗓 Прошедшие игры")
+async def past_events_list(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    await state.clear()
+    events = db.get_past_events()
+    if not events:
+        await message.answer("Прошедших игр пока нет.")
+        return
+    buttons = []
+    for event in events:
+        buttons.append([InlineKeyboardButton(
+            text=f"📅 {event['event_date']} — {event['title']}",
+            callback_data=f"past_event_{event['id']}"
+        )])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer("🗓 <b>Прошедшие игры:</b>", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("past_event_"))
+async def past_event_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    event_id = int(callback.data.split("_")[-1])
+    event = db.get_event_by_id(event_id)
+    regs = db.get_registrations_for_event(event_id)
+    if not regs:
+        await callback.message.answer(
+            f"📅 <b>{event['title']}</b> ({event['event_date']})\n\nЗаявок нет."
+        )
+        await callback.answer()
+        return
+    lines = [f"📅 <b>{event['title']}</b> ({event['event_date']})\n"
+             f"Всего команд: {len(regs)}\n"]
+    for i, r in enumerate(regs, 1):
+        username = f"@{r['username']}" if r.get('username') else "—"
+        lines.append(
+            f"{i}. <b>{r['team_name']}</b> — {r['team_size']} чел.\n"
+            f"   Капитан: {r['captain_name']} | {r['phone']}\n"
+            f"   TG: {username}"
+        )
+    await callback.message.answer("\n".join(lines))
+    await callback.answer()
+
+
 # ── База подписчиков (экспорт) ────────────────────────────────
 
 @router.message(F.text == "📥 База подписчиков")

@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from states import RegistrationState
 from keyboards.inline import confirm_registration_kb
+from keyboards.reply import main_menu, phone_request_kb
 from handlers.common import format_date_short
 
 router = Router()
@@ -72,27 +73,45 @@ async def reg_captain_name(message: Message, state: FSMContext):
     await state.update_data(captain_name=captain_name)
     await state.set_state(RegistrationState.phone)
     await message.answer(
-        "Введите номер телефона капитана в формате +998_________:\n"
-        "Пример: <b>+998901234567</b>"
+        "Укажите номер телефона капитана.\n"
+        "Нажмите кнопку ниже или введите вручную в формате <b>+998XXXXXXXXX</b>:",
+        reply_markup=phone_request_kb()
+    )
+
+
+@router.message(RegistrationState.phone, F.contact)
+async def reg_phone_contact(message: Message, state: FSMContext):
+    """Телефон через кнопку 'Поделиться номером'"""
+    phone_raw = message.contact.phone_number
+    phone = phone_raw if phone_raw.startswith("+") else f"+{phone_raw}"
+    await state.update_data(phone=phone)
+    await state.set_state(RegistrationState.comment)
+    await message.answer(
+        "Комментарий к заявке (необязательно). Если нет — напишите: <b>-</b>",
+        reply_markup=main_menu()
     )
 
 
 @router.message(RegistrationState.phone)
 async def reg_phone(message: Message, state: FSMContext):
+    if not message.text:
+        return
     phone = message.text.strip().replace(" ", "").replace("-", "")
-    # Пункт 3: только узбекские номера +998XXXXXXXXX
     if not PHONE_RE.match(phone):
         await message.answer(
             "❌ Неверный формат номера.\n\n"
             "Принимаются только узбекские номера в формате:\n"
             "<b>+998XXXXXXXXX</b>\n\n"
             "Пример: <b>+998901234567</b>\n\n"
-            "Введите номер ещё раз:"
+            "Или нажмите кнопку 📱 чтобы поделиться номером автоматически:"
         )
         return
     await state.update_data(phone=phone)
     await state.set_state(RegistrationState.comment)
-    await message.answer("Комментарий к заявке (необязательно). Если нет — напишите: -")
+    await message.answer(
+        "Комментарий к заявке (необязательно). Если нет — напишите: <b>-</b>",
+        reply_markup=main_menu()
+    )
 
 
 @router.message(RegistrationState.comment)
@@ -157,10 +176,23 @@ async def _show_summary(message, state, data):
     await message.answer(summary, reply_markup=confirm_registration_kb())
 
 
+@router.callback_query(F.data == "edit_registration")
+async def edit_registration(callback: CallbackQuery, state: FSMContext):
+    """Сброс — начать заполнение заново, сохранив event_id"""
+    data = await state.get_data()
+    event_id = data.get("event_id")
+    await state.clear()
+    if event_id:
+        await state.update_data(event_id=event_id)
+    await state.set_state(RegistrationState.team_name)
+    await callback.message.answer("Заполним заново. Введите название команды:")
+    await callback.answer()
+
+
 @router.callback_query(F.data == "cancel_registration")
 async def cancel_registration(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.answer("Регистрация отменена.")
+    await callback.message.answer("Регистрация отменена.", reply_markup=main_menu())
     await callback.answer()
 
 

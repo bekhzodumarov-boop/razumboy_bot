@@ -678,21 +678,45 @@ async def show_broadcasts(message: Message, state: FSMContext, db, admin_ids: li
         await message.answer("Рассылок пока не было.")
         return
 
-    lines = [f"📬 <b>Последние рассылки ({len(broadcasts)}):</b>\n"]
+    await message.answer(f"📬 <b>Последние рассылки ({len(broadcasts)}):</b>")
+
     for i, b in enumerate(broadcasts, 1):
         event_name = b["event_title"] or "Свой пост"
-        # Обрезаем текст до 100 символов для превью
-        preview = b["message_text"][:100].replace("\n", " ")
-        if len(b["message_text"]) > 100:
+        preview = b["message_text"][:80].replace("\n", " ")
+        if len(b["message_text"]) > 80:
             preview += "..."
-        sent_at = b["sent_at"][:16].replace("T", " ")  # убираем секунды
-        lines.append(
-            f"\n{i}. <b>{event_name}</b>\n"
-            f"   📅 {sent_at} | 📨 Отправлено: {b['sent_count']} чел.\n"
-            f"   <i>{preview}</i>"
+        sent_at = b["sent_at"][:16].replace("T", " ")
+        text = (
+            f"{i}. <b>{event_name}</b>\n"
+            f"📅 {sent_at} | 📨 {b['sent_count']} чел.\n"
+            f"<i>{preview}</i>"
         )
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="👁 Полный текст", callback_data=f"broadcast_view_{b['id']}")
+        ]])
+        await message.answer(text, reply_markup=kb)
 
-    await message.answer("\n".join(lines))
+
+@router.callback_query(F.data.startswith("broadcast_view_"))
+async def view_broadcast_text(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    broadcast_id = int(callback.data.split("_")[-1])
+    broadcasts = db.get_broadcasts(limit=50)
+    b = next((x for x in broadcasts if x["id"] == broadcast_id), None)
+    if not b:
+        await callback.answer("Рассылка не найдена.", show_alert=True)
+        return
+    event_name = b["event_title"] or "Свой пост"
+    sent_at = b["sent_at"][:16].replace("T", " ")
+    header = f"📬 <b>{event_name}</b> | {sent_at} | {b['sent_count']} чел.\n\n"
+    full_text = header + b["message_text"]
+    # Telegram limit 4096 chars
+    if len(full_text) > 4096:
+        full_text = full_text[:4090] + "..."
+    await callback.message.answer(full_text)
+    await callback.answer()
 
 
 # ── Отмена игры ───────────────────────────────────────────────

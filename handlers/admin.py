@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
-from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState
+from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState
 
 router = Router()
 
@@ -1153,6 +1153,108 @@ async def export_subscribers(message: Message, state: FSMContext, db, admin_ids:
         document=BufferedInputFile(csv_content, filename=filename),
         caption=f"📥 База подписчиков — {len(profiles)} чел."
     )
+
+
+# ── Фотографии с игр (управление) ────────────────────────────
+
+@router.message(F.text == "📸 Фото с игр")
+async def manage_photo_albums(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    await state.clear()
+    albums = db.get_photo_albums()
+    text = "📸 <b>Фотографии с игр</b>\n\n"
+    if albums:
+        for a in albums:
+            text += f"• {a['title']}\n"
+    else:
+        text += "Альбомов пока нет.\n"
+
+    del_buttons = [
+        [InlineKeyboardButton(text=f"🗑 {a['title']}", callback_data=f"photo_del_{a['id']}")]
+        for a in albums
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Добавить альбом", callback_data="photo_add")],
+        *del_buttons,
+    ])
+    await message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "photo_add")
+async def photo_add_start(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.set_state(AdminPhotoAlbumState.date_text)
+    await callback.message.answer("Введите дату игры в формате <b>«29 марта»</b>:")
+    await callback.answer()
+
+
+@router.message(AdminPhotoAlbumState.date_text)
+async def photo_enter_date(message: Message, state: FSMContext):
+    await state.update_data(date_text=message.text.strip())
+    await state.set_state(AdminPhotoAlbumState.game_type)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Razumboy", callback_data="photo_type_Razumboy")],
+        [InlineKeyboardButton(text="Razumbooo", callback_data="photo_type_Razumbooo")],
+    ])
+    await message.answer("Выберите тип игры:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("photo_type_"), AdminPhotoAlbumState.game_type)
+async def photo_choose_type(callback: CallbackQuery, state: FSMContext):
+    game_type = callback.data.split("photo_type_")[1]
+    await state.update_data(game_type=game_type)
+    await state.set_state(AdminPhotoAlbumState.url)
+    await callback.message.answer("Вставьте <b>ссылку</b> на фотографии:")
+    await callback.answer()
+
+
+@router.message(AdminPhotoAlbumState.url)
+async def photo_enter_url(message: Message, state: FSMContext, db, bot):
+    url = message.text.strip()
+    data = await state.get_data()
+    title = f"{data['date_text']}, {data['game_type']}"
+    db.add_photo_album(title, url)
+    await state.clear()
+
+    # Рассылка подписчикам
+    broadcast_text = (
+        f"📸 <b>Новые фотографии с игры!</b>\n\n"
+        f"🎉 Мы разобрали фотоархив — и спешим поделиться яркими моментами с <b>{title}</b>!\n\n"
+        f"Смотрите, как это было: смех, азарт, командный дух и, конечно, правильные ответы 😄\n\n"
+        f"👇 Нажмите кнопку ниже, чтобы посмотреть фотографии:"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"📸 Смотреть фото — {title}", url=url)
+    ]])
+
+    subscribers = db.get_subscribers()
+    sent_count = 0
+    for user in subscribers:
+        try:
+            await bot.send_message(user["telegram_id"], broadcast_text, reply_markup=kb)
+            sent_count += 1
+        except Exception:
+            pass
+
+    await message.answer(
+        f"✅ Альбом <b>«📸 {title}»</b> добавлен!\n\n"
+        f"📨 Уведомление отправлено {sent_count} из {len(subscribers)} подписчиков.",
+        reply_markup=admin_menu()
+    )
+
+
+@router.callback_query(F.data.startswith("photo_del_"))
+async def photo_delete(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    album_id = int(callback.data.split("_")[-1])
+    db.delete_photo_album(album_id)
+    await callback.message.answer("🗑 Альбом удалён.", reply_markup=admin_menu())
+    await callback.answer()
 
 
 @router.message(F.text & ~F.text.startswith("/"))

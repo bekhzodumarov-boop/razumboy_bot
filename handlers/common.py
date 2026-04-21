@@ -8,14 +8,6 @@ from keyboards.inline import upcoming_event_kb
 
 router = Router()
 
-# Фотографии с игр — статический список (пункт 8)
-PHOTO_ALBUMS = [
-    {"title": "29 марта, Razumbooo", "url": "https://t.me/razumboyphotos/12138"},
-    {"title": "22 марта, Razumbooo", "url": "https://t.me/razumboyphotos/12079"},
-    {"title": "15 марта, Razumbooo", "url": "https://t.me/razumboyphotos/12043"},
-    {"title": "8 марта, Razumbooo",  "url": "https://t.me/razumboyphotos/11986"},
-]
-
 MONTHS_RU = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
     5: "мая", 6: "июня", 7: "июля", 8: "августа",
@@ -161,10 +153,12 @@ async def show_event_detail(callback: CallbackQuery, db):
 
 # ── Пункт 8: Фотографии с игр — список альбомов ──────────────
 @router.message(F.text == "📸 Фотографии с игр")
-async def photos(message: Message):
-    buttons = []
-    for album in PHOTO_ALBUMS:
-        buttons.append([InlineKeyboardButton(text=f"📸 {album['title']}", url=album["url"])])
+async def photos(message: Message, db):
+    albums = db.get_photo_albums()
+    if not albums:
+        await message.answer("📸 Фотографий пока нет. Скоро добавим! 🎉")
+        return
+    buttons = [[InlineKeyboardButton(text=f"📸 {a['title']}", url=a["url"])] for a in albums]
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.answer("📸 <b>Фотографии с наших игр:</b>\nВыберите игру:", reply_markup=kb)
 

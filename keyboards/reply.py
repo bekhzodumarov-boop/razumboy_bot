@@ -21,7 +21,7 @@ def admin_menu():
             [KeyboardButton(text="❌ Отменить игру"), KeyboardButton(text="📬 История рассылок")],
             [KeyboardButton(text="🗓 Прошедшие игры"), KeyboardButton(text="📥 База подписчиков")],
             [KeyboardButton(text="🎲 Рандомбой"), KeyboardButton(text="⚡️ Блиц-квиз")],
-            [KeyboardButton(text="🏠 Главное меню")],
+            [KeyboardButton(text="📸 Фото с игр"), KeyboardButton(text="🏠 Главное меню")],
         ],
         resize_keyboard=True,
     )

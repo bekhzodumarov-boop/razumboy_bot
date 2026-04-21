@@ -57,3 +57,9 @@ class SubscribeState(StatesGroup):
     gender = State()
     age = State()
     phone = State()
+
+
+class AdminPhotoAlbumState(StatesGroup):
+    date_text = State()   # «29 марта»
+    game_type = State()   # Razumboy / Razumbooo
+    url = State()         # ссылка на фото

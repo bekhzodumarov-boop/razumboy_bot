@@ -144,6 +144,28 @@ class Database:
             )
             """)
 
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS photo_albums (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL UNIQUE,
+                url TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            # Seed исходных альбомов (INSERT OR IGNORE — не дублируются)
+            initial_albums = [
+                ("29 марта, Razumbooo", "https://t.me/razumboyphotos/12138"),
+                ("22 марта, Razumbooo", "https://t.me/razumboyphotos/12079"),
+                ("15 марта, Razumbooo", "https://t.me/razumboyphotos/12043"),
+                ("8 марта, Razumbooo",  "https://t.me/razumboyphotos/11986"),
+            ]
+            for title, url in initial_albums:
+                cur.execute(
+                    "INSERT OR IGNORE INTO photo_albums (title, url) VALUES (?, ?)",
+                    (title, url)
+                )
+
         # Миграция — добавляет новые колонки если их нет (БД удалять не нужно)
         self._migrate()
 
@@ -611,3 +633,25 @@ class Database:
             return bool(conn.execute(
                 "SELECT 1 FROM blitz_winners WHERE telegram_id=?", (telegram_id,)
             ).fetchone())
+
+    # ── Фотоальбомы ───────────────────────────────────────────
+
+    def get_photo_albums(self) -> list:
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM photo_albums ORDER BY created_at DESC"
+            ).fetchall()
+
+    def add_photo_album(self, title: str, url: str) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT OR REPLACE INTO photo_albums (title, url) VALUES (?, ?)",
+                (title, url)
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def delete_photo_album(self, album_id: int):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM photo_albums WHERE id = ?", (album_id,))
+            conn.commit()

@@ -1230,11 +1230,14 @@ async def gw_edit_announce(callback: CallbackQuery, state: FSMContext, admin_ids
     await callback.answer()
 
 
-@router.message(AdminGiveawayState.announce_text)
+@router.message(AdminGiveawayState.announce_text, F.text)
 async def gw_save_announce(message: Message, state: FSMContext, db):
-    db.update_giveaway_field("announce_text", message.text.strip())
-    await state.clear()
-    await message.answer("✅ Текст объявления сохранён.", reply_markup=admin_menu())
+    try:
+        db.update_giveaway_field("announce_text", message.text.strip())
+        await state.clear()
+        await message.answer("✅ Текст объявления сохранён.", reply_markup=admin_menu())
+    except Exception as e:
+        await message.answer(f"❌ Ошибка сохранения: {e}")
 
 
 @router.callback_query(F.data == "gw_edit_congrats")
@@ -1252,11 +1255,14 @@ async def gw_edit_congrats(callback: CallbackQuery, state: FSMContext, admin_ids
     await callback.answer()
 
 
-@router.message(AdminGiveawayState.congrats_text)
+@router.message(AdminGiveawayState.congrats_text, F.text)
 async def gw_save_congrats(message: Message, state: FSMContext, db):
-    db.update_giveaway_field("congrats_text", message.text.strip())
-    await state.clear()
-    await message.answer("✅ Текст поздравления сохранён.", reply_markup=admin_menu())
+    try:
+        db.update_giveaway_field("congrats_text", message.text.strip())
+        await state.clear()
+        await message.answer("✅ Текст поздравления сохранён.", reply_markup=admin_menu())
+    except Exception as e:
+        await message.answer(f"❌ Ошибка сохранения: {e}")
 
 
 @router.callback_query(F.data == "gw_edit_time")
@@ -1273,20 +1279,23 @@ async def gw_edit_time(callback: CallbackQuery, state: FSMContext, admin_ids: li
     await callback.answer()
 
 
-@router.message(AdminGiveawayState.announce_time)
+@router.message(AdminGiveawayState.announce_time, F.text)
 async def gw_save_time(message: Message, state: FSMContext, db):
     import re
     parts = message.text.strip().split()
     if len(parts) != 2 or not all(re.match(r"^\d{2}:\d{2}$", p) for p in parts):
         await message.answer("Неверный формат. Введите два времени: <code>20:50 21:00</code>")
         return
-    db.update_giveaway_field("announce_time", parts[0])
-    db.update_giveaway_field("draw_time", parts[1])
-    await state.clear()
-    await message.answer(
-        f"✅ Время обновлено: рассылка в <b>{parts[0]}</b>, жеребьёвка в <b>{parts[1]}</b>",
-        reply_markup=admin_menu()
-    )
+    try:
+        db.update_giveaway_field("announce_time", parts[0])
+        db.update_giveaway_field("draw_time", parts[1])
+        await state.clear()
+        await message.answer(
+            f"✅ Время обновлено: рассылка в <b>{parts[0]}</b>, жеребьёвка в <b>{parts[1]}</b>",
+            reply_markup=admin_menu()
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @router.callback_query(F.data == "gw_edit_image")

@@ -1313,10 +1313,7 @@ async def gw_toggle(callback: CallbackQuery, db, admin_ids: list[int]):
         await callback.answer()
         return
     s = db.get_giveaway_settings()
-    if not s:
-        await callback.answer("Сначала настройте розыгрыш.", show_alert=True)
-        return
-    new_active = 0 if s["active"] else 1
+    new_active = 0 if (s and s["active"]) else 1
     db.update_giveaway_field("active", new_active)
     status = "включён ✅" if new_active else "выключен ⛔️"
     await callback.message.answer(f"Розыгрыш {status}.", reply_markup=admin_menu())

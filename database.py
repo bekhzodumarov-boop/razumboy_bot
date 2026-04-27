@@ -157,6 +157,8 @@ class Database:
                 active INTEGER NOT NULL DEFAULT 0
             )
             """)
+            # Гарантируем наличие строки — без неё UPDATE не работает
+            cur.execute("INSERT OR IGNORE INTO giveaway_settings (id) VALUES (1)")
 
             cur.execute("""
             CREATE TABLE IF NOT EXISTS giveaway_sessions (

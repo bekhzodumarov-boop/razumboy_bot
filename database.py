@@ -231,6 +231,15 @@ class Database:
             except Exception:
                 pass
 
+            # Заполнить active_days если NULL (после миграции)
+            try:
+                conn.execute(
+                    "UPDATE giveaway_settings SET active_days = '0,1,2,3,4,5,6' WHERE active_days IS NULL OR active_days = ''"
+                )
+                conn.commit()
+            except Exception:
+                pass
+
         # Восстановить резервные данные если БД пустая (первый запуск на Railway Volume)
         self._restore_backup_if_empty()
 

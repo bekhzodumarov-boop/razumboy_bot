@@ -1349,7 +1349,10 @@ async def gw_edit_days(callback: CallbackQuery, db, admin_ids: list[int]):
         await callback.answer()
         return
     s = db.get_giveaway_settings()
-    active_days = s["active_days"] if s and s["active_days"] else "0,1,2,3,4,5,6"
+    try:
+        active_days = s["active_days"] if s and s["active_days"] else "0,1,2,3,4,5,6"
+    except Exception:
+        active_days = "0,1,2,3,4,5,6"
     await callback.message.answer(
         "📅 <b>Выбери дни розыгрыша</b>\n\n"
         "✅ — розыгрыш проводится\n◻️ — розыгрыш пропускается\n\n"
@@ -1364,18 +1367,25 @@ async def gw_toggle_day(callback: CallbackQuery, db, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
         return
-    day = callback.data.split("gw_day_")[1]  # "0"–"6"
-    s = db.get_giveaway_settings()
-    active_days = set(s["active_days"].split(",")) if s and s["active_days"] else set("0123456")
-    if day in active_days:
-        active_days.discard(day)
-    else:
-        active_days.add(day)
-    new_days_str = ",".join(sorted(active_days))
-    db.update_giveaway_field("active_days", new_days_str)
-    # Обновляем кнопки на месте
-    await callback.message.edit_reply_markup(reply_markup=_days_kb(new_days_str))
-    await callback.answer()
+    try:
+        day = callback.data.split("gw_day_")[1]  # "0"–"6"
+        s = db.get_giveaway_settings()
+        # Безопасное чтение active_days — поле могло не быть в старой БД
+        try:
+            raw = s["active_days"] if s else ""
+        except Exception:
+            raw = "0,1,2,3,4,5,6"
+        active_days = set(raw.split(",")) if raw else {"0","1","2","3","4","5","6"}
+        if day in active_days:
+            active_days.discard(day)
+        else:
+            active_days.add(day)
+        new_days_str = ",".join(sorted(active_days))
+        db.update_giveaway_field("active_days", new_days_str)
+        await callback.message.edit_reply_markup(reply_markup=_days_kb(new_days_str))
+        await callback.answer()
+    except Exception as e:
+        await callback.answer(f"Ошибка: {e}", show_alert=True)
 
 
 @router.callback_query(F.data == "gw_days_done")
@@ -1384,7 +1394,10 @@ async def gw_days_done(callback: CallbackQuery, db, admin_ids: list[int]):
         await callback.answer()
         return
     s = db.get_giveaway_settings()
-    active_days = s["active_days"] if s and s["active_days"] else "0,1,2,3,4,5,6"
+    try:
+        active_days = s["active_days"] if s and s["active_days"] else "0,1,2,3,4,5,6"
+    except Exception:
+        active_days = "0,1,2,3,4,5,6"
     day_names = [DAYS_LABELS[int(d)] for d in sorted(active_days.split(",")) if d.isdigit()]
     await callback.message.answer(
         f"✅ Дни розыгрыша сохранены: <b>{', '.join(day_names)}</b>",

@@ -1165,10 +1165,17 @@ def _giveaway_settings_text(s, session=None) -> str:
     congrats_preview = (s["congrats_text"][:80] + "…") if s and s["congrats_text"] else "—"
     img = "✅ есть" if s and s["image_file_id"] else "—"
 
+    if s and s["active_days"]:
+        day_names = [DAYS_LABELS[int(d)] for d in sorted(s["active_days"].split(",")) if d.isdigit()]
+        days_str = ", ".join(day_names) if day_names else "—"
+    else:
+        days_str = "Пн, Вт, Ср, Чт, Пт, Сб, Вс"
+
     text = (
         f"🎟 <b>Розыгрыш проходок</b>\n\n"
         f"Статус: {active}\n"
         f"⏰ Рассылка: <b>{announce_time}</b> | Жеребьёвка: <b>{draw_time}</b>\n"
+        f"📅 Дни: <b>{days_str}</b>\n"
         f"🖼 Картинка: {img}\n\n"
         f"📢 Текст объявления:\n<i>{announce_preview}</i>\n\n"
         f"🏆 Текст поздравления:\n<i>{congrats_preview}</i>\n"
@@ -1184,6 +1191,9 @@ def _giveaway_settings_text(s, session=None) -> str:
     return text
 
 
+DAYS_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+
 def _giveaway_menu_kb(has_settings: bool, active: bool) -> InlineKeyboardMarkup:
     toggle = "⛔️ Выключить" if active else "✅ Включить"
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -1191,9 +1201,26 @@ def _giveaway_menu_kb(has_settings: bool, active: bool) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🏆 Текст поздравления", callback_data="gw_edit_congrats")],
         [InlineKeyboardButton(text="⏰ Изменить время", callback_data="gw_edit_time")],
         [InlineKeyboardButton(text="🖼 Изменить картинку", callback_data="gw_edit_image")],
+        [InlineKeyboardButton(text="📅 Дни недели", callback_data="gw_edit_days")],
         [InlineKeyboardButton(text=toggle, callback_data="gw_toggle")],
         [InlineKeyboardButton(text="▶️ Запустить сейчас", callback_data="gw_run_now")],
     ])
+
+
+def _days_kb(active_days_str: str) -> InlineKeyboardMarkup:
+    """Клавиатура выбора дней: 7 кнопок с галочками, потом Сохранить."""
+    active = set(active_days_str.split(",")) if active_days_str else set()
+    buttons = []
+    row = []
+    for i, label in enumerate(DAYS_LABELS):
+        mark = "✅" if str(i) in active else "◻️"
+        row.append(InlineKeyboardButton(
+            text=f"{mark} {label}",
+            callback_data=f"gw_day_{i}"
+        ))
+    buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="💾 Сохранить", callback_data="gw_days_done")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 @router.message(F.text == "🎟 Проходка")
@@ -1314,6 +1341,56 @@ async def gw_save_image(message: Message, state: FSMContext, db):
     db.update_giveaway_field("image_file_id", file_id)
     await state.clear()
     await message.answer("✅ Картинка сохранена.", reply_markup=admin_menu())
+
+
+@router.callback_query(F.data == "gw_edit_days")
+async def gw_edit_days(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    s = db.get_giveaway_settings()
+    active_days = s["active_days"] if s and s["active_days"] else "0,1,2,3,4,5,6"
+    await callback.message.answer(
+        "📅 <b>Выбери дни розыгрыша</b>\n\n"
+        "✅ — розыгрыш проводится\n◻️ — розыгрыш пропускается\n\n"
+        "Нажимай на кнопки чтобы включить/выключить дни, затем <b>Сохранить</b>.",
+        reply_markup=_days_kb(active_days)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("gw_day_"))
+async def gw_toggle_day(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    day = callback.data.split("gw_day_")[1]  # "0"–"6"
+    s = db.get_giveaway_settings()
+    active_days = set(s["active_days"].split(",")) if s and s["active_days"] else set("0123456")
+    if day in active_days:
+        active_days.discard(day)
+    else:
+        active_days.add(day)
+    new_days_str = ",".join(sorted(active_days))
+    db.update_giveaway_field("active_days", new_days_str)
+    # Обновляем кнопки на месте
+    await callback.message.edit_reply_markup(reply_markup=_days_kb(new_days_str))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "gw_days_done")
+async def gw_days_done(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    s = db.get_giveaway_settings()
+    active_days = s["active_days"] if s and s["active_days"] else "0,1,2,3,4,5,6"
+    day_names = [DAYS_LABELS[int(d)] for d in sorted(active_days.split(",")) if d.isdigit()]
+    await callback.message.answer(
+        f"✅ Дни розыгрыша сохранены: <b>{', '.join(day_names)}</b>",
+        reply_markup=admin_menu()
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "gw_toggle")

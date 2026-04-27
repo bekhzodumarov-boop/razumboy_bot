@@ -182,11 +182,22 @@ async def giveaway_draw(bot, db, admin_ids: list):
 
 # ── Проверка расписания (вызывается каждую минуту из APScheduler) ──
 
+def _today_weekday() -> int:
+    """0=Пн, 6=Вс — в ташкентском времени."""
+    return datetime.datetime.now(tz=TASHKENT_OFFSET).weekday()
+
+
 async def check_giveaway_schedule(bot, db, admin_ids: list):
     """Проверяет расписание и запускает announce/draw в нужное время."""
     settings = db.get_giveaway_settings()
     if not settings or not settings["active"]:
         return
+
+    # Проверяем день недели
+    active_days = settings["active_days"] if settings["active_days"] else "0,1,2,3,4,5,6"
+    today_wd = str(_today_weekday())
+    if today_wd not in active_days.split(","):
+        return  # сегодня розыгрыш не проводится
 
     now = _now_hhmm()
 

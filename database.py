@@ -154,7 +154,8 @@ class Database:
                 announce_time TEXT NOT NULL DEFAULT '20:50',
                 draw_time TEXT NOT NULL DEFAULT '21:00',
                 winners_count INTEGER NOT NULL DEFAULT 2,
-                active INTEGER NOT NULL DEFAULT 0
+                active INTEGER NOT NULL DEFAULT 0,
+                active_days TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6'
             )
             """)
             # Гарантируем наличие строки — без неё UPDATE не работает
@@ -213,6 +214,7 @@ class Database:
         migrations = [
             ("events", "photo_file_id", "TEXT"),
             ("events", "location_url", "TEXT"),
+            ("giveaway_settings", "active_days", "TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6'"),
         ]
         with self._connect() as conn:
             for table, column, col_type in migrations:

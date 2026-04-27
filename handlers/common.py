@@ -1,5 +1,6 @@
 import datetime
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton as KB
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import main_menu
@@ -67,7 +68,7 @@ def format_event(event) -> str:
 
 
 # ── /cancel — выход из любого FSM состояния ──────────────────
-@router.message(F.text == "/cancel")
+@router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext):
     current = await state.get_state()
     await state.clear()
@@ -78,7 +79,7 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 
 # ── Пункт 11, 12: /start — подписка + список игр ─────────────
-@router.message(F.text == "/start")
+@router.message(Command("start"))
 async def cmd_start(message: Message, db, admin_ids: list[int]):
     user = message.from_user
     db.upsert_user(

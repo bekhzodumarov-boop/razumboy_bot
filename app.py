@@ -2,9 +2,11 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import load_config
 from database import Database
-from handlers import common_router, registration_router, admin_router, user_router
+from handlers import common_router, registration_router, admin_router, user_router, giveaway_router
+from handlers.giveaway import check_giveaway_schedule
 
 # Включаем логирование всех ошибок
 logging.basicConfig(
@@ -32,9 +34,24 @@ async def main():
     dp.include_router(registration_router)
     dp.include_router(admin_router)
     dp.include_router(user_router)
+    dp.include_router(giveaway_router)
+
+    # ── APScheduler: проверка расписания розыгрыша каждую минуту ──
+    scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
+    scheduler.add_job(
+        check_giveaway_schedule,
+        trigger="cron",
+        minute="*",          # каждую минуту
+        args=[bot, db, config.admin_ids],
+    )
+    scheduler.start()
+    logger.info("APScheduler запущен — проверка расписания розыгрыша каждую минуту")
 
     print("Бот Разумбой запущен...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        scheduler.shutdown()
 
 
 if __name__ == "__main__":

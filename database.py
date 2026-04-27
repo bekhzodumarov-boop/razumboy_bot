@@ -144,6 +144,43 @@ class Database:
             )
             """)
 
+            # ── Розыгрыш проходок ─────────────────────────────────
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS giveaway_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                announce_text TEXT NOT NULL DEFAULT '',
+                congrats_text TEXT NOT NULL DEFAULT '',
+                image_file_id TEXT,
+                announce_time TEXT NOT NULL DEFAULT '20:50',
+                draw_time TEXT NOT NULL DEFAULT '21:00',
+                winners_count INTEGER NOT NULL DEFAULT 2,
+                active INTEGER NOT NULL DEFAULT 0
+            )
+            """)
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS giveaway_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL UNIQUE,
+                sent_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS giveaway_participants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                telegram_id INTEGER NOT NULL,
+                username TEXT,
+                full_name TEXT,
+                joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES giveaway_sessions(id),
+                UNIQUE (session_id, telegram_id)
+            )
+            """)
+
             cur.execute("""
             CREATE TABLE IF NOT EXISTS photo_albums (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -655,3 +692,108 @@ class Database:
         with self._connect() as conn:
             conn.execute("DELETE FROM photo_albums WHERE id = ?", (album_id,))
             conn.commit()
+
+    # ── Розыгрыш проходок ─────────────────────────────────────
+
+    def get_giveaway_settings(self) -> Optional[sqlite3.Row]:
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM giveaway_settings WHERE id = 1").fetchone()
+
+    def save_giveaway_settings(self, announce_text: str, congrats_text: str,
+                                image_file_id, announce_time: str, draw_time: str,
+                                winners_count: int = 2, active: int = 1):
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO giveaway_settings
+                    (id, announce_text, congrats_text, image_file_id, announce_time, draw_time, winners_count, active)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    announce_text=excluded.announce_text,
+                    congrats_text=excluded.congrats_text,
+                    image_file_id=excluded.image_file_id,
+                    announce_time=excluded.announce_time,
+                    draw_time=excluded.draw_time,
+                    winners_count=excluded.winners_count,
+                    active=excluded.active
+            """, (announce_text, congrats_text, image_file_id,
+                  announce_time, draw_time, winners_count, active))
+            conn.commit()
+
+    def update_giveaway_field(self, field: str, value):
+        allowed = {"announce_text", "congrats_text", "image_file_id",
+                   "announce_time", "draw_time", "winners_count", "active"}
+        if field not in allowed:
+            raise ValueError(f"Unknown field: {field}")
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE giveaway_settings SET {field} = ? WHERE id = 1", (value,)
+            )
+            conn.commit()
+
+    def create_giveaway_session(self, date: str) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO giveaway_sessions (date, status) VALUES (?, 'pending')",
+                (date,)
+            )
+            conn.commit()
+            if cur.lastrowid:
+                return cur.lastrowid
+            return conn.execute(
+                "SELECT id FROM giveaway_sessions WHERE date = ?", (date,)
+            ).fetchone()["id"]
+
+    def get_giveaway_session_by_id(self, session_id: int) -> Optional[sqlite3.Row]:
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM giveaway_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+
+    def get_giveaway_session(self, date: str) -> Optional[sqlite3.Row]:
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM giveaway_sessions WHERE date = ?", (date,)
+            ).fetchone()
+
+    def update_session_status(self, session_id: int, status: str, sent_count: int = None):
+        with self._connect() as conn:
+            if sent_count is not None:
+                conn.execute(
+                    "UPDATE giveaway_sessions SET status=?, sent_count=? WHERE id=?",
+                    (status, sent_count, session_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE giveaway_sessions SET status=? WHERE id=?",
+                    (status, session_id)
+                )
+            conn.commit()
+
+    def add_giveaway_participant(self, session_id: int, telegram_id: int,
+                                  username: str, full_name: str) -> bool:
+        """Возвращает True если успешно добавлен, False если уже участвует."""
+        with self._connect() as conn:
+            try:
+                conn.execute("""
+                    INSERT INTO giveaway_participants (session_id, telegram_id, username, full_name)
+                    VALUES (?, ?, ?, ?)
+                """, (session_id, telegram_id, username, full_name))
+                conn.commit()
+                return True
+            except Exception:
+                return False
+
+    def get_giveaway_participants(self, session_id: int) -> list:
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM giveaway_participants WHERE session_id = ?",
+                (session_id,)
+            ).fetchall()
+
+    def count_giveaway_participants(self, session_id: int) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM giveaway_participants WHERE session_id = ?",
+                (session_id,)
+            ).fetchone()
+            return row["cnt"] if row else 0

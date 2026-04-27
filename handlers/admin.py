@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
-from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState
+from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState
 
 router = Router()
 
@@ -1153,6 +1153,186 @@ async def export_subscribers(message: Message, state: FSMContext, db, admin_ids:
         document=BufferedInputFile(csv_content, filename=filename),
         caption=f"📥 База подписчиков — {len(profiles)} чел."
     )
+
+
+# ── Проходка — розыгрыш ───────────────────────────────────────
+
+def _giveaway_settings_text(s, session=None) -> str:
+    active = "✅ Активен" if s and s["active"] else "⛔️ Выключен"
+    announce_time = s["announce_time"] if s else "20:50"
+    draw_time = s["draw_time"] if s else "21:00"
+    announce_preview = (s["announce_text"][:80] + "…") if s and s["announce_text"] else "—"
+    congrats_preview = (s["congrats_text"][:80] + "…") if s and s["congrats_text"] else "—"
+    img = "✅ есть" if s and s["image_file_id"] else "—"
+
+    text = (
+        f"🎟 <b>Розыгрыш проходок</b>\n\n"
+        f"Статус: {active}\n"
+        f"⏰ Рассылка: <b>{announce_time}</b> | Жеребьёвка: <b>{draw_time}</b>\n"
+        f"🖼 Картинка: {img}\n\n"
+        f"📢 Текст объявления:\n<i>{announce_preview}</i>\n\n"
+        f"🏆 Текст поздравления:\n<i>{congrats_preview}</i>\n"
+        f"<code>{{winners}}</code> — плейсхолдер для имён победителей\n"
+    )
+    if session:
+        status_map = {"pending": "⏳ Ожидает", "announced": "📢 Объявлено", "done": "✅ Завершено"}
+        text += (
+            f"\n📊 <b>Сегодня ({session['date']}):</b>\n"
+            f"Статус: {status_map.get(session['status'], session['status'])}\n"
+            f"Отправлено: {session['sent_count']} | Участвуют: {session['_participants']}"
+        )
+    return text
+
+
+def _giveaway_menu_kb(has_settings: bool, active: bool) -> InlineKeyboardMarkup:
+    toggle = "⛔️ Выключить" if active else "✅ Включить"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Текст объявления", callback_data="gw_edit_announce")],
+        [InlineKeyboardButton(text="🏆 Текст поздравления", callback_data="gw_edit_congrats")],
+        [InlineKeyboardButton(text="⏰ Изменить время", callback_data="gw_edit_time")],
+        [InlineKeyboardButton(text="🖼 Изменить картинку", callback_data="gw_edit_image")],
+        [InlineKeyboardButton(text=toggle, callback_data="gw_toggle")],
+        [InlineKeyboardButton(text="▶️ Запустить сейчас", callback_data="gw_run_now")],
+    ])
+
+
+@router.message(F.text == "🎟 Проходка")
+async def giveaway_panel(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    await state.clear()
+    import datetime as dt
+    s = db.get_giveaway_settings()
+    today = dt.datetime.now(tz=dt.timezone(dt.timedelta(hours=5))).strftime("%Y-%m-%d")
+    raw_session = db.get_giveaway_session(today)
+    session = None
+    if raw_session:
+        session = dict(raw_session)
+        session["_participants"] = db.count_giveaway_participants(raw_session["id"])
+
+    text = _giveaway_settings_text(s, session)
+    active = bool(s and s["active"])
+    await message.answer(text, reply_markup=_giveaway_menu_kb(bool(s), active))
+
+
+# ── Редактирование настроек ────────────────────────────────────
+
+@router.callback_query(F.data == "gw_edit_announce")
+async def gw_edit_announce(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.set_state(AdminGiveawayState.announce_text)
+    await callback.message.answer(
+        "Введите новый текст объявления:\n\n"
+        "<i>Используйте HTML: &lt;b&gt;жирный&lt;/b&gt;, &lt;i&gt;курсив&lt;/i&gt;</i>"
+    )
+    await callback.answer()
+
+
+@router.message(AdminGiveawayState.announce_text)
+async def gw_save_announce(message: Message, state: FSMContext, db):
+    db.update_giveaway_field("announce_text", message.text.strip())
+    await state.clear()
+    await message.answer("✅ Текст объявления сохранён.", reply_markup=admin_menu())
+
+
+@router.callback_query(F.data == "gw_edit_congrats")
+async def gw_edit_congrats(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.set_state(AdminGiveawayState.congrats_text)
+    await callback.message.answer(
+        "Введите текст поздравления победителей.\n\n"
+        "Используйте <code>{winners}</code> — туда подставятся имена победителей.\n\n"
+        "Пример:\n"
+        "<i>🎉 Сегодня Рандомбой выбрал {winners}! Вы получаете бесплатные пригласительные 🎟</i>"
+    )
+    await callback.answer()
+
+
+@router.message(AdminGiveawayState.congrats_text)
+async def gw_save_congrats(message: Message, state: FSMContext, db):
+    db.update_giveaway_field("congrats_text", message.text.strip())
+    await state.clear()
+    await message.answer("✅ Текст поздравления сохранён.", reply_markup=admin_menu())
+
+
+@router.callback_query(F.data == "gw_edit_time")
+async def gw_edit_time(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.set_state(AdminGiveawayState.announce_time)
+    await callback.message.answer(
+        "Введите два времени через пробел:\n"
+        "<b>время рассылки</b> и <b>время жеребьёвки</b>\n\n"
+        "Пример: <code>20:50 21:00</code>"
+    )
+    await callback.answer()
+
+
+@router.message(AdminGiveawayState.announce_time)
+async def gw_save_time(message: Message, state: FSMContext, db):
+    import re
+    parts = message.text.strip().split()
+    if len(parts) != 2 or not all(re.match(r"^\d{2}:\d{2}$", p) for p in parts):
+        await message.answer("Неверный формат. Введите два времени: <code>20:50 21:00</code>")
+        return
+    db.update_giveaway_field("announce_time", parts[0])
+    db.update_giveaway_field("draw_time", parts[1])
+    await state.clear()
+    await message.answer(
+        f"✅ Время обновлено: рассылка в <b>{parts[0]}</b>, жеребьёвка в <b>{parts[1]}</b>",
+        reply_markup=admin_menu()
+    )
+
+
+@router.callback_query(F.data == "gw_edit_image")
+async def gw_edit_image(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.set_state(AdminGiveawayState.image)
+    await callback.message.answer("Отправьте картинку для объявления (или /cancel чтобы убрать картинку):")
+    await callback.answer()
+
+
+@router.message(AdminGiveawayState.image, F.photo)
+async def gw_save_image(message: Message, state: FSMContext, db):
+    file_id = message.photo[-1].file_id
+    db.update_giveaway_field("image_file_id", file_id)
+    await state.clear()
+    await message.answer("✅ Картинка сохранена.", reply_markup=admin_menu())
+
+
+@router.callback_query(F.data == "gw_toggle")
+async def gw_toggle(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    s = db.get_giveaway_settings()
+    if not s:
+        await callback.answer("Сначала настройте розыгрыш.", show_alert=True)
+        return
+    new_active = 0 if s["active"] else 1
+    db.update_giveaway_field("active", new_active)
+    status = "включён ✅" if new_active else "выключен ⛔️"
+    await callback.message.answer(f"Розыгрыш {status}.", reply_markup=admin_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "gw_run_now")
+async def gw_run_now(callback: CallbackQuery, db, bot, admin_ids: list[int]):
+    """Ручной запуск — сначала рассылка, через сообщение админ запускает жеребьёвку."""
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    from handlers.giveaway import giveaway_announce
+    await callback.message.answer("⏳ Запускаю рассылку объявления…")
+    await giveaway_announce(bot, db, admin_ids)
+    await callback.answer()
 
 
 # ── Фотографии с игр (управление) ────────────────────────────

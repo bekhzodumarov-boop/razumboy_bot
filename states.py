@@ -63,3 +63,11 @@ class AdminPhotoAlbumState(StatesGroup):
     date_text = State()   # «29 марта»
     game_type = State()   # Razumboy / Razumbooo
     url = State()         # ссылка на фото
+
+
+class AdminGiveawayState(StatesGroup):
+    announce_text = State()   # текст объявления
+    congrats_text = State()   # текст поздравления
+    announce_time = State()   # время рассылки HH:MM
+    draw_time = State()       # время жеребьёвки HH:MM
+    image = State()           # картинка

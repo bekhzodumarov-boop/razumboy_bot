@@ -734,7 +734,7 @@ class Database:
 
     def update_giveaway_field(self, field: str, value):
         allowed = {"announce_text", "congrats_text", "image_file_id",
-                   "announce_time", "draw_time", "winners_count", "active"}
+                   "announce_time", "draw_time", "winners_count", "active", "active_days"}
         if field not in allowed:
             raise ValueError(f"Unknown field: {field}")
         with self._connect() as conn:

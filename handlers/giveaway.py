@@ -2,8 +2,8 @@
 handlers/giveaway.py — Розыгрыш бесплатных проходок
 
 Две функции вызываются APScheduler-ом из app.py:
-  - giveaway_announce(bot, db, admin_ids)  — в 20:50, рассылает объявление
-  - giveaway_draw(bot, db, admin_ids)      — в 21:00, выбирает победителей
+  - giveaway_announce(bot, db, admin_ids, channel_id)  — в 20:30, рассылает объявление
+  - giveaway_draw(bot, db, admin_ids, channel_id)      — в 21:00, выбирает победителей
 """
 
 import random
@@ -28,7 +28,7 @@ def _now_hhmm() -> str:
 
 # ── Рассылка объявления ────────────────────────────────────────
 
-async def giveaway_announce(bot, db, admin_ids: list):
+async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
     settings = db.get_giveaway_settings()
     if not settings or not settings["active"]:
         return
@@ -76,6 +76,22 @@ async def giveaway_announce(bot, db, admin_ids: list):
 
     db.update_session_status(session_id, "announced", sent_count=sent_count)
 
+    # Дублируем объявление в канал
+    if channel_id:
+        try:
+            if settings["image_file_id"]:
+                await bot.send_photo(
+                    channel_id,
+                    photo=settings["image_file_id"],
+                    caption=announce_text,
+                    reply_markup=kb,
+                )
+            else:
+                await bot.send_message(channel_id, announce_text, reply_markup=kb)
+            logger.info(f"giveaway_announce: объявление отправлено в канал {channel_id}")
+        except Exception as e:
+            logger.warning(f"giveaway_announce: не удалось отправить в канал {channel_id}: {e}")
+
     # Статистика для админов
     participants_count = db.count_giveaway_participants(session_id)
     stats = (
@@ -93,7 +109,7 @@ async def giveaway_announce(bot, db, admin_ids: list):
 
 # ── Жеребьёвка ────────────────────────────────────────────────
 
-async def giveaway_draw(bot, db, admin_ids: list):
+async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
     settings = db.get_giveaway_settings()
     if not settings or not settings["active"]:
         return
@@ -119,6 +135,14 @@ async def giveaway_draw(bot, db, admin_ids: list):
                 await bot.send_message(user["telegram_id"], no_participants_text)
             except Exception:
                 pass
+
+        # Дублируем в канал
+        if channel_id:
+            try:
+                await bot.send_message(channel_id, no_participants_text)
+            except Exception as e:
+                logger.warning(f"giveaway_draw: не удалось отправить в канал {channel_id}: {e}")
+
         db.update_session_status(session_id, "done")
 
         for admin_id in admin_ids:
@@ -164,6 +188,14 @@ async def giveaway_draw(bot, db, admin_ids: list):
         except Exception:
             pass
 
+    # Дублируем результаты в канал
+    if channel_id:
+        try:
+            await bot.send_message(channel_id, congrats_text)
+            logger.info(f"giveaway_draw: результаты отправлены в канал {channel_id}")
+        except Exception as e:
+            logger.warning(f"giveaway_draw: не удалось отправить в канал {channel_id}: {e}")
+
     db.update_session_status(session_id, "done")
 
     # Статистика для админов
@@ -187,7 +219,7 @@ def _today_weekday() -> int:
     return datetime.datetime.now(tz=TASHKENT_OFFSET).weekday()
 
 
-async def check_giveaway_schedule(bot, db, admin_ids: list):
+async def check_giveaway_schedule(bot, db, admin_ids: list, channel_id: int = 0):
     """Проверяет расписание и запускает announce/draw в нужное время."""
     settings = db.get_giveaway_settings()
     if not settings or not settings["active"]:
@@ -202,9 +234,9 @@ async def check_giveaway_schedule(bot, db, admin_ids: list):
     now = _now_hhmm()
 
     if now == settings["announce_time"]:
-        await giveaway_announce(bot, db, admin_ids)
+        await giveaway_announce(bot, db, admin_ids, channel_id)
     elif now == settings["draw_time"]:
-        await giveaway_draw(bot, db, admin_ids)
+        await giveaway_draw(bot, db, admin_ids, channel_id)
 
 
 # ── Callback: пользователь нажал «Участвую» ───────────────────

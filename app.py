@@ -42,7 +42,7 @@ async def main():
         check_giveaway_schedule,
         trigger="cron",
         minute="*",          # каждую минуту
-        args=[bot, db, config.admin_ids],
+        args=[bot, db, config.admin_ids, config.channel_id],
     )
     scheduler.start()
     logger.info("APScheduler запущен — проверка расписания розыгрыша каждую минуту")

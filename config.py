@@ -10,12 +10,14 @@ class Config:
     bot_token: str
     admin_ids: list[int]
     db_path: str
+    channel_id: int  # Telegram-канал для дублирования розыгрыша (0 = отключено)
 
 
 def load_config() -> Config:
     bot_token = os.getenv("BOT_TOKEN", "").strip()
     admin_ids_raw = os.getenv("ADMIN_IDS", "").strip()
     db_path = os.getenv("DB_PATH", "razumboy.db").strip()
+    channel_id_raw = os.getenv("CHANNEL_ID", "0").strip()
 
     if not bot_token:
         raise ValueError("BOT_TOKEN is not set")
@@ -24,8 +26,14 @@ def load_config() -> Config:
     if admin_ids_raw:
         admin_ids = [int(x.strip()) for x in admin_ids_raw.split(",") if x.strip()]
 
+    try:
+        channel_id = int(channel_id_raw)
+    except ValueError:
+        channel_id = 0
+
     return Config(
         bot_token=bot_token,
         admin_ids=admin_ids,
         db_path=db_path,
+        channel_id=channel_id,
     )

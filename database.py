@@ -151,7 +151,7 @@ class Database:
                 announce_text TEXT NOT NULL DEFAULT '',
                 congrats_text TEXT NOT NULL DEFAULT '',
                 image_file_id TEXT,
-                announce_time TEXT NOT NULL DEFAULT '20:50',
+                announce_time TEXT NOT NULL DEFAULT '20:30',
                 draw_time TEXT NOT NULL DEFAULT '21:00',
                 winners_count INTEGER NOT NULL DEFAULT 2,
                 active INTEGER NOT NULL DEFAULT 0,
@@ -235,6 +235,15 @@ class Database:
             try:
                 conn.execute(
                     "UPDATE giveaway_settings SET active_days = '0,1,2,3,4,5,6' WHERE active_days IS NULL OR active_days = ''"
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+            # Обновить время объявления с 20:50 на 20:30 (для существующих БД)
+            try:
+                conn.execute(
+                    "UPDATE giveaway_settings SET announce_time = '20:30' WHERE announce_time = '20:50'"
                 )
                 conn.commit()
             except Exception:

@@ -89,20 +89,46 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
         language_code=user.language_code,
         is_admin=user.id in admin_ids,
     )
-    # Пункт 12: сразу подписываем
     db.set_subscription(user.id, True)
+
+    # Deep link: /start event_42 — показать конкретную игру
+    parts = message.text.split() if message.text else []
+    if len(parts) > 1 and parts[1].startswith("event_"):
+        try:
+            event_id = int(parts[1].split("_")[1])
+            event = db.get_event_by_id(event_id)
+            if event:
+                await message.answer(
+                    "Добро пожаловать в бот Разумбой! 🧠",
+                    reply_markup=main_menu(),
+                )
+                text = format_event(event)
+                if event["photo_file_id"]:
+                    if len(text) <= 1024:
+                        await message.answer_photo(
+                            photo=event["photo_file_id"],
+                            caption=text,
+                            reply_markup=upcoming_event_kb(event["id"]),
+                        )
+                    else:
+                        await message.answer_photo(photo=event["photo_file_id"])
+                        await message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
+                else:
+                    await message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
+                await _remind_profile_if_missing(message, db)
+                return
+        except Exception:
+            pass  # некорректный deep link — продолжаем обычный /start
 
     await message.answer(
         "Добро пожаловать в бот Разумбой! 🧠\nВыберите действие в меню ниже.",
         reply_markup=main_menu(),
     )
 
-    # Пункт 11: сразу показываем список активных игр
     events = db.get_open_events()
     if events:
         await _show_events_list(message, events)
 
-    # Напоминание заполнить профиль если ещё не заполнен
     await _remind_profile_if_missing(message, db)
 
 

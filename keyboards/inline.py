@@ -1,10 +1,18 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def upcoming_event_kb(event_id: int):
+def upcoming_event_kb(event_id: int, bot_username: str = "Razumboy_Bot"):
+    share_url = (
+        f"https://t.me/share/url"
+        f"?url=https://t.me/{bot_username}?start%3Devent_{event_id}"
+        f"&text=%F0%9F%A7%A0+%D0%A1%D0%BC%D0%BE%D1%82%D1%80%D0%B8+%D0%B0%D0%BD%D0%BE%D0%BD%D1%81+%D0%B8%D0%B3%D1%80%D1%8B+%D0%A0%D0%B0%D0%B7%D1%83%D0%BC%D0%B1%D0%BE%D0%B9%21"
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📝 Зарегистрироваться", callback_data=f"register_event_{event_id}")],
+            [
+                InlineKeyboardButton(text="📝 Зарегистрироваться", callback_data=f"register_event_{event_id}"),
+                InlineKeyboardButton(text="📤 Поделиться", url=share_url),
+            ],
         ]
     )
 

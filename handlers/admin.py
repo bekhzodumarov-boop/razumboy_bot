@@ -858,8 +858,14 @@ async def randoboy_start(callback: CallbackQuery, db, bot, admin_ids: list[int])
         return
     db.randoboy_start()
     subscribers = db.get_subscribers()
+    randoboy_share_url = (
+        "https://t.me/share/url"
+        "?url=https://t.me/Razumboy_Bot"
+        "&text=%F0%9F%8E%B2+%D0%9F%D1%80%D0%B8%D1%81%D0%BE%D0%B5%D0%B4%D0%B8%D0%BD%D1%8F%D0%B9%D1%81%D1%8F+%D0%BA+%D0%A0%D0%B0%D0%BD%D0%B4%D0%BE%D0%BC%D0%B1%D0%BE%D1%8E%21"
+    )
     join_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎲 Участвовать в Рандомбой!", callback_data="randoboy_join")]
+        [InlineKeyboardButton(text="🎲 Участвовать в Рандомбой!", callback_data="randoboy_join")],
+        [InlineKeyboardButton(text="📤 Поделиться", url=randoboy_share_url)],
     ])
     sent = 0
     for user in subscribers:

@@ -1,15 +1,15 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def main_menu():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🎯 Ближайшие игры"), KeyboardButton(text="📝 Регистрация")],
-            [KeyboardButton(text="📸 Фотографии с игр"), KeyboardButton(text="🗂 Мои регистрации")],
-            [KeyboardButton(text="📬 Получать анонсы"), KeyboardButton(text="❓ Задать вопрос")],
-        ],
-        resize_keyboard=True,
-    )
+def main_menu(is_admin: bool = False):
+    keyboard = [
+        [KeyboardButton(text="🎯 Ближайшие игры"), KeyboardButton(text="📝 Регистрация")],
+        [KeyboardButton(text="📸 Фотографии с игр"), KeyboardButton(text="🗂 Мои регистрации")],
+        [KeyboardButton(text="📬 Получать анонсы"), KeyboardButton(text="❓ Задать вопрос")],
+    ]
+    if is_admin:
+        keyboard.append([KeyboardButton(text="⚙️ Панель администратора")])
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 def admin_menu():

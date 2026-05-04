@@ -80,7 +80,7 @@ async def reg_captain_name(message: Message, state: FSMContext):
 
 
 @router.message(RegistrationState.phone, F.contact)
-async def reg_phone_contact(message: Message, state: FSMContext):
+async def reg_phone_contact(message: Message, state: FSMContext, admin_ids: list[int]):
     """Телефон через кнопку 'Поделиться номером'"""
     phone_raw = message.contact.phone_number
     phone = phone_raw if phone_raw.startswith("+") else f"+{phone_raw}"
@@ -88,12 +88,12 @@ async def reg_phone_contact(message: Message, state: FSMContext):
     await state.set_state(RegistrationState.comment)
     await message.answer(
         "Комментарий к заявке (необязательно). Если нет — напишите: <b>-</b>",
-        reply_markup=main_menu()
+        reply_markup=main_menu(message.from_user.id in admin_ids)
     )
 
 
 @router.message(RegistrationState.phone)
-async def reg_phone(message: Message, state: FSMContext):
+async def reg_phone(message: Message, state: FSMContext, admin_ids: list[int]):
     if not message.text:
         return
     phone = message.text.strip().replace(" ", "").replace("-", "")
@@ -110,7 +110,7 @@ async def reg_phone(message: Message, state: FSMContext):
     await state.set_state(RegistrationState.comment)
     await message.answer(
         "Комментарий к заявке (необязательно). Если нет — напишите: <b>-</b>",
-        reply_markup=main_menu()
+        reply_markup=main_menu(message.from_user.id in admin_ids)
     )
 
 
@@ -190,9 +190,9 @@ async def edit_registration(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data == "cancel_registration")
-async def cancel_registration(callback: CallbackQuery, state: FSMContext):
+async def cancel_registration(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
     await state.clear()
-    await callback.message.answer("Регистрация отменена.", reply_markup=main_menu())
+    await callback.message.answer("Регистрация отменена.", reply_markup=main_menu(callback.from_user.id in admin_ids))
     await callback.answer()
 
 

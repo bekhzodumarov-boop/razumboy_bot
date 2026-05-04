@@ -69,13 +69,14 @@ def format_event(event) -> str:
 
 # ── /cancel — выход из любого FSM состояния ──────────────────
 @router.message(Command("cancel"))
-async def cmd_cancel(message: Message, state: FSMContext):
+async def cmd_cancel(message: Message, state: FSMContext, admin_ids: list[int]):
     current = await state.get_state()
     await state.clear()
+    _is_admin = message.from_user.id in admin_ids
     if current:
-        await message.answer("❌ Действие отменено. Возвращаемся в главное меню.", reply_markup=main_menu())
+        await message.answer("❌ Действие отменено. Возвращаемся в главное меню.", reply_markup=main_menu(_is_admin))
     else:
-        await message.answer("Нечего отменять. Вы в главном меню.", reply_markup=main_menu())
+        await message.answer("Нечего отменять. Вы в главном меню.", reply_markup=main_menu(_is_admin))
 
 
 # ── Пункт 11, 12: /start — подписка + список игр ─────────────
@@ -90,6 +91,7 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
         is_admin=user.id in admin_ids,
     )
     db.set_subscription(user.id, True)
+    _is_admin = user.id in admin_ids
 
     # Deep link: /start event_42 — показать конкретную игру
     parts = message.text.split() if message.text else []
@@ -100,7 +102,7 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
             if event:
                 await message.answer(
                     "Добро пожаловать в бот Разумбой! 🧠",
-                    reply_markup=main_menu(),
+                    reply_markup=main_menu(_is_admin),
                 )
                 text = format_event(event)
                 if event["photo_file_id"]:
@@ -122,7 +124,7 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
 
     await message.answer(
         "Добро пожаловать в бот Разумбой! 🧠\nВыберите действие в меню ниже.",
-        reply_markup=main_menu(),
+        reply_markup=main_menu(_is_admin),
     )
 
     events = db.get_open_events()
@@ -218,13 +220,13 @@ async def receive_question(message: Message, state: FSMContext, bot, admin_ids: 
     await state.clear()
     await message.answer(
         "✅ Мы получили ваш вопрос и ответим в ближайшее время!",
-        reply_markup=main_menu()
+        reply_markup=main_menu(message.from_user.id in admin_ids)
     )
 
 
 @router.message(F.text == "🏠 Главное меню")
-async def back_to_main(message: Message, db):
-    await message.answer("Главное меню:", reply_markup=main_menu())
+async def back_to_main(message: Message, db, admin_ids: list[int]):
+    await message.answer("Главное меню:", reply_markup=main_menu(message.from_user.id in admin_ids))
     await _remind_profile_if_missing(message, db)
 
 
@@ -311,7 +313,7 @@ async def subscribe_age(message: Message, state: FSMContext):
 
 
 @router.message(SubscribeState.phone)
-async def subscribe_phone(message: Message, state: FSMContext, db):
+async def subscribe_phone(message: Message, state: FSMContext, db, admin_ids: list[int]):
     import re
     phone = message.text.strip().replace(" ", "").replace("-", "")
     if not re.match(r"^\+998\d{9}$", phone):
@@ -332,5 +334,5 @@ async def subscribe_phone(message: Message, state: FSMContext, db):
     await message.answer(
         "✅ <b>Спасибо за регистрацию в нашем боте!</b>\n\n"
         "Вы будете получать анонсы и новости Разумбоя! 🧠",
-        reply_markup=main_menu()
+        reply_markup=main_menu(message.from_user.id in admin_ids)
     )

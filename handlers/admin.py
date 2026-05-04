@@ -82,6 +82,15 @@ async def admin_panel(message: Message, state: FSMContext, admin_ids: list[int])
     await message.answer("Добро пожаловать в админ-панель Разумбоя.", reply_markup=admin_menu())
 
 
+@router.message(F.text == "⚙️ Панель администратора")
+async def admin_panel_button(message: Message, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        await message.answer("У вас нет доступа к админ-панели.")
+        return
+    await state.clear()
+    await message.answer("Добро пожаловать в админ-панель Разумбоя.", reply_markup=admin_menu())
+
+
 # ── Создание игры ─────────────────────────────────────────────
 
 @router.message(F.text == "➕ Создать игру")

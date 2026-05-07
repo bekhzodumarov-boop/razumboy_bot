@@ -472,7 +472,7 @@ async def broadcast_send_reminder(callback: CallbackQuery, state: FSMContext, db
 
     # Пункт 2: добавить локацию со ссылкой если есть
     location_line = f"🏡 {event['location']}"
-    if event.get("location_url"):
+    if event["location_url"]:
         location_line += f"\n📍 {event['location_url']}"
 
     text = (
@@ -534,7 +534,7 @@ async def broadcast_send_dayof(callback: CallbackQuery, state: FSMContext, db, b
     for reg in registrations:
         # Пункт 7: добавить локацию со ссылкой если есть
         location_line = f"📍 {event['location']}"
-        if event.get("location_url"):
+        if event["location_url"]:
             location_line += f"\n🗺 {event['location_url']}"
 
         text = (

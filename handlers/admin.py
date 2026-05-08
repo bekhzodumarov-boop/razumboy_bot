@@ -690,9 +690,12 @@ async def show_broadcasts(message: Message, state: FSMContext, db, admin_ids: li
     await message.answer(f"📬 <b>Последние рассылки ({len(broadcasts)}):</b>")
 
     for i, b in enumerate(broadcasts, 1):
+        import re as _re
         event_name = b["event_title"] or "Свой пост"
-        preview = b["message_text"][:80].replace("\n", " ")
-        if len(b["message_text"]) > 80:
+        # Убираем HTML-теги перед обрезкой — иначе обрезанный тег ломает разметку
+        clean_text = _re.sub(r"<[^>]+>", "", b["message_text"] or "")
+        preview = clean_text[:80].replace("\n", " ")
+        if len(clean_text) > 80:
             preview += "..."
         sent_at = b["sent_at"][:16].replace("T", " ")
         text = (

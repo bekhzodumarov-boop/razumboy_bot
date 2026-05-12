@@ -657,7 +657,7 @@ def _reply_confirm_kb(registration_id):
             callback_data=f"confirm_players_{registration_id}"
         )],
         [InlineKeyboardButton(
-            text="❌ Отменяю регистрацию",
+            text="❌ Отменить участие",
             callback_data=f"cancel_players_{registration_id}"
         )],
     ])

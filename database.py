@@ -456,6 +456,30 @@ class Database:
             """, (event_id,))
             return cur.fetchall()
 
+    def get_registrations_for_event_full(self, event_id) -> list:
+        """Все регистрации (confirmed + cancelled) с данными подтверждения — для списка заявок."""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT r.*, u.telegram_id, u.username, u.full_name,
+                       c.confirmed_count, c.player_names
+                FROM registrations r JOIN users u ON r.user_id = u.id
+                LEFT JOIN confirmations c ON c.registration_id = r.id
+                WHERE r.event_id = ?
+                ORDER BY
+                    CASE r.status WHEN 'confirmed' THEN 0 ELSE 1 END,
+                    r.created_at ASC
+            """, (event_id,))
+            return cur.fetchall()
+
+    def cancel_registration_by_id(self, registration_id: int):
+        """Отменить регистрацию пользователем."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE registrations SET status = 'cancelled' WHERE id = ?",
+                (registration_id,)
+            )
+            conn.commit()
+
     def get_registrations_with_confirmations(self, event_id) -> list:
         """Заявки с данными о подтверждении — для экспорта в Excel"""
         with self._connect() as conn:

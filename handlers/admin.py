@@ -338,20 +338,38 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
         await callback.message.answer("Игра не найдена.")
         await callback.answer()
         return
-    registrations = db.get_registrations_for_event(event_id)
+
+    registrations = db.get_registrations_for_event_full(event_id)
     date_ru = format_date_ru(event["event_date"])
+
     if not registrations:
         await callback.message.answer(f"Заявок на «{event['title']}» ({date_ru}) пока нет.")
         await callback.answer()
         return
-    lines = [f"<b>Заявки на {event['title']}</b>\n📅 {date_ru}:\n"]
-    for i, r in enumerate(registrations, 1):
-        lines.append(
-            f"{i}. <b>{r['team_name']}</b>\n"
-            f"   Игроков: {r['team_size']} | Капитан: {r['captain_name']}\n"
-            f"   Телефон: {r['phone']}\n"
-            f"   Комментарий: {r['comment'] or 'нет'}\n"
-        )
+
+    active = [r for r in registrations if r["status"] == "confirmed"]
+    cancelled = [r for r in registrations if r["status"] == "cancelled"]
+
+    lines = [f"<b>Заявки на «{event['title']}»</b>\n📅 {date_ru}:\n"]
+
+    total_players = 0
+    for i, r in enumerate(active, 1):
+        if r["confirmed_count"] is not None:
+            icon = "✅"
+            count = r["confirmed_count"]
+        else:
+            icon = "⏳"
+            count = r["team_size"]
+        total_players += count
+        lines.append(f"{icon}{i}. {r['team_name']} {count}")
+
+    lines.append(f"\n<b>Итого: {total_players}</b>")
+
+    if cancelled:
+        lines.append("\n<b>Отменили регистрацию:</b>")
+        for i, r in enumerate(cancelled, 1):
+            lines.append(f"{i}. {r['team_name']} {r['team_size']}")
+
     await callback.message.answer("\n".join(lines))
     await callback.answer()
 
@@ -637,7 +655,11 @@ def _reply_confirm_kb(registration_id):
         [InlineKeyboardButton(
             text="✅ Подтвердить участие",
             callback_data=f"confirm_players_{registration_id}"
-        )]
+        )],
+        [InlineKeyboardButton(
+            text="❌ Отменяю регистрацию",
+            callback_data=f"cancel_players_{registration_id}"
+        )],
     ])
 
 

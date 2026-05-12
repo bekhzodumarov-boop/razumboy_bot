@@ -106,3 +106,36 @@ async def confirm_players_save(message: Message, state: FSMContext, db, bot, adm
             pass
 
     await state.clear()
+
+
+@router.callback_query(F.data.startswith("cancel_players_"))
+async def cancel_players(callback: CallbackQuery, db, bot, admin_ids: list[int]):
+    registration_id = int(callback.data.split("_")[-1])
+    reg = db.get_registration_by_id(registration_id)
+    if not reg:
+        await callback.answer("Регистрация не найдена.", show_alert=True)
+        return
+    if reg["status"] == "cancelled":
+        await callback.answer("Регистрация уже отменена.", show_alert=True)
+        return
+
+    db.cancel_registration_by_id(registration_id)
+
+    await callback.message.answer(
+        "❌ Ваша регистрация отменена. Жаль, что не увидимся! 😔\n\n"
+        "Если планы изменятся — регистрируйтесь снова через бот."
+    )
+    await callback.answer()
+
+    # Уведомляем админов
+    admin_text = (
+        f"❌ <b>Отмена регистрации</b>\n\n"
+        f"Команда: <b>{reg['team_name']}</b> ({reg['team_size']} чел.)\n"
+        f"Капитан: {reg['captain_name']} | {reg['phone']}\n"
+        f"User: @{callback.from_user.username or 'без username'} ({callback.from_user.id})"
+    )
+    for admin_id in admin_ids:
+        try:
+            await bot.send_message(admin_id, admin_text)
+        except Exception:
+            pass

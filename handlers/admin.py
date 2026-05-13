@@ -361,14 +361,14 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
             icon = "⏳"
             count = r["team_size"]
         total_players += count
-        lines.append(f"{icon}{i}. {r['team_name']} {count}")
+        lines.append(f"{icon}{i}. {r['team_name']} {count} {r['captain_name']} {r['phone']}")
 
     lines.append(f"\n<b>Итого: {total_players}</b>")
 
     if cancelled:
         lines.append("\n<b>Отменили регистрацию:</b>")
         for i, r in enumerate(cancelled, 1):
-            lines.append(f"{i}. {r['team_name']} {r['team_size']}")
+            lines.append(f"{i}. {r['team_name']} {r['team_size']} {r['captain_name']} {r['phone']}")
 
     await callback.message.answer("\n".join(lines))
     await callback.answer()

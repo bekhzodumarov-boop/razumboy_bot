@@ -32,8 +32,8 @@ async def main():
 
     dp.include_router(common_router)
     dp.include_router(registration_router)
-    dp.include_router(admin_router)
     dp.include_router(user_router)
+    dp.include_router(admin_router)
     dp.include_router(giveaway_router)
 
     # ── APScheduler: проверка расписания розыгрыша каждую минуту ──

@@ -48,9 +48,9 @@ async def main():
     scheduler.add_job(
         send_friday_winner_reminders,
         trigger="cron",
-        day_of_week="fri",
-        hour=10,
-        minute=30,
+        day_of_week="thu",
+        hour=21,
+        minute=10,
         args=[bot, db, config.admin_ids],
     )
     scheduler.start()

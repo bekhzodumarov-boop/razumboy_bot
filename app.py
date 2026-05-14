@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import load_config
 from database import Database
 from handlers import common_router, registration_router, admin_router, user_router, giveaway_router
-from handlers.giveaway import check_giveaway_schedule
+from handlers.giveaway import check_giveaway_schedule, send_friday_winner_reminders
 
 # Включаем логирование всех ошибок
 logging.basicConfig(
@@ -33,8 +33,8 @@ async def main():
     dp.include_router(common_router)
     dp.include_router(registration_router)
     dp.include_router(user_router)
-    dp.include_router(admin_router)
     dp.include_router(giveaway_router)
+    dp.include_router(admin_router)
 
     # ── APScheduler: проверка расписания розыгрыша каждую минуту ──
     scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
@@ -43,6 +43,15 @@ async def main():
         trigger="cron",
         minute="*",          # каждую минуту
         args=[bot, db, config.admin_ids, config.channel_id],
+    )
+    # Пятничная рассылка победителям розыгрыша — каждую пятницу в 10:30
+    scheduler.add_job(
+        send_friday_winner_reminders,
+        trigger="cron",
+        day_of_week="fri",
+        hour=10,
+        minute=30,
+        args=[bot, db, config.admin_ids],
     )
     scheduler.start()
     logger.info("APScheduler запущен — проверка расписания розыгрыша каждую минуту")

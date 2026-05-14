@@ -196,6 +196,10 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
         except Exception as e:
             logger.warning(f"giveaway_draw: не удалось отправить в канал {channel_id}: {e}")
 
+    # Сохраняем победителей в таблицу giveaway_winners
+    for w in winners:
+        db.save_giveaway_winner(w["telegram_id"], w["username"], w["full_name"])
+
     db.update_session_status(session_id, "done")
 
     # Статистика для админов
@@ -262,3 +266,70 @@ async def giveaway_join(callback: CallbackQuery, db):
         await callback.answer("✅ Вы участвуете в розыгрыше! Удачи! 🍀", show_alert=True)
     else:
         await callback.answer("Вы уже зарегистрированы 😊", show_alert=True)
+
+
+# ── Пятничная рассылка победителям ────────────────────────────
+
+WINNER_REMINDER_TEXT = (
+    "🎲 Добрый вечер! Рандомбой сделал свой выбор! И вы победили в розыгрыше "
+    "бесплатной проходки на Razumboy: стреляй и пой в эту пятницу\n\n"
+    "✍️ Подтвердите пожалуйста своё участие и напишите название своей команды"
+)
+
+
+def _winner_reminder_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да, приму участие", callback_data="winner_yes")],
+        [InlineKeyboardButton(text="❌ К сожалению, не смогу принять участие", callback_data="winner_no")],
+    ])
+
+
+async def send_friday_winner_reminders(bot, db, admin_ids: list):
+    """Рассылка победителям Рандомбой за последние 7 дней — каждую пятницу в 10:30."""
+    winners = db.get_giveaway_winners_since(days=7)
+    if not winners:
+        logger.info("send_friday_winner_reminders: победителей за 7 дней нет")
+        return
+
+    sent = 0
+    for w in winners:
+        try:
+            await bot.send_message(
+                w["telegram_id"],
+                WINNER_REMINDER_TEXT,
+                reply_markup=_winner_reminder_kb(),
+            )
+            sent += 1
+        except Exception as e:
+            logger.warning(f"send_friday_winner_reminders: не удалось отправить {w['telegram_id']}: {e}")
+
+    for admin_id in admin_ids:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"📩 <b>Пятничная рассылка победителям</b>\n\nОтправлено: {sent} из {len(winners)} победителей"
+            )
+        except Exception:
+            pass
+
+
+# ── Callbacks ответа победителя ────────────────────────────────
+
+@router.callback_query(F.data == "winner_yes")
+async def winner_confirm_yes(callback: CallbackQuery, state):
+    """Победитель подтверждает участие — переводим в FSM для получения названия команды."""
+    from states import WinnerConfirmState
+    await state.set_state(WinnerConfirmState.team_name)
+    await callback.message.answer(
+        "Отлично! Напишите, пожалуйста, <b>название вашей команды</b>:"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "winner_no")
+async def winner_confirm_no(callback: CallbackQuery):
+    await callback.message.answer(
+        "Жаль! Ничего страшного. Удачи в следующий раз! 🍀\n\n"
+        "Если передумаете — напишите @razumboy."
+    )
+    await callback.answer()

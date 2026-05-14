@@ -71,3 +71,7 @@ class AdminGiveawayState(StatesGroup):
     announce_time = State()   # время рассылки HH:MM
     draw_time = State()       # время жеребьёвки HH:MM
     image = State()           # картинка
+
+
+class WinnerConfirmState(StatesGroup):
+    team_name = State()       # ожидаем название команды от победителя

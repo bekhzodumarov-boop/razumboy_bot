@@ -193,6 +193,16 @@ class Database:
             )
             """)
 
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS giveaway_winners (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                username TEXT,
+                full_name TEXT,
+                won_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
             # Seed исходных альбомов (INSERT OR IGNORE — не дублируются)
             initial_albums = [
                 ("29 марта, Razumbooo", "https://t.me/razumboyphotos/12138"),
@@ -843,3 +853,34 @@ class Database:
                 (session_id,)
             ).fetchone()
             return row["cnt"] if row else 0
+
+    def save_giveaway_winner(self, telegram_id: int, username: str, full_name: str):
+        """Сохранить победителя розыгрыша."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO giveaway_winners (telegram_id, username, full_name) VALUES (?, ?, ?)",
+                (telegram_id, username or "", full_name or "")
+            )
+            conn.commit()
+
+    def get_giveaway_winners_since(self, days: int = 7) -> list:
+        """Победители за последние N дней (уникальные по telegram_id)."""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT telegram_id, username, full_name, MAX(won_at) as won_at
+                FROM giveaway_winners
+                WHERE won_at >= datetime('now', ?)
+                GROUP BY telegram_id
+                ORDER BY won_at DESC
+            """, (f'-{days} days',))
+            return cur.fetchall()
+
+    def get_registration_with_user(self, reg_id: int) -> Optional[sqlite3.Row]:
+        """Регистрация + telegram_id капитана для уведомления."""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT r.*, u.telegram_id as user_telegram_id, u.username as user_username
+                FROM registrations r JOIN users u ON r.user_id = u.id
+                WHERE r.id = ?
+            """, (reg_id,))
+            return cur.fetchone()

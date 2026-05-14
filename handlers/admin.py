@@ -371,6 +371,18 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
             lines.append(f"{i}. {r['team_name']} {r['team_size']} {r['captain_name']} {r['phone']}")
 
     await callback.message.answer("\n".join(lines))
+
+    # Кнопки отмены для активных команд
+    if active:
+        cancel_buttons = []
+        for r in active:
+            cancel_buttons.append([InlineKeyboardButton(
+                text=f"🗑 Отменить: {r['team_name']}",
+                callback_data=f"admin_pre_cancel_{r['id']}"
+            )])
+        kb = InlineKeyboardMarkup(inline_keyboard=cancel_buttons)
+        await callback.message.answer("Отменить регистрацию команды:", reply_markup=kb)
+
     await callback.answer()
 
 
@@ -620,6 +632,75 @@ async def broadcast_custom_send(message: Message, state: FSMContext, db, bot):
     db.save_broadcast(None, text, sent_count)
     await message.answer(f"✅ Рассылка завершена. Отправлено: {sent_count}", reply_markup=admin_menu())
     await state.clear()
+
+
+# ── Отмена регистрации команды (admin) ───────────────────────
+
+@router.callback_query(F.data.startswith("admin_pre_cancel_"))
+async def admin_pre_cancel(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    registration_id = int(callback.data.split("_")[-1])
+    reg = db.get_registration_by_id(registration_id)
+    if not reg:
+        await callback.answer("Регистрация не найдена.", show_alert=True)
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="✅ Да, отменить",
+            callback_data=f"admin_do_cancel_{registration_id}"
+        )],
+        [InlineKeyboardButton(
+            text="🔙 Назад",
+            callback_data="admin_cancel_dismiss"
+        )],
+    ])
+    await callback.message.answer(
+        f"Отменить регистрацию команды <b>{reg['team_name']}</b> "
+        f"({reg['team_size']} чел., {reg['captain_name']})?",
+        reply_markup=kb
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_cancel_dismiss")
+async def admin_cancel_dismiss(callback: CallbackQuery):
+    await callback.message.delete()
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_do_cancel_"))
+async def admin_do_cancel(callback: CallbackQuery, db, bot, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    registration_id = int(callback.data.split("_")[-1])
+    reg = db.get_registration_with_user(registration_id)
+    if not reg:
+        await callback.answer("Регистрация не найдена.", show_alert=True)
+        return
+    if reg["status"] == "cancelled":
+        await callback.answer("Уже отменена.", show_alert=True)
+        return
+
+    db.cancel_registration_by_id(registration_id)
+
+    await callback.message.answer(
+        f"✅ Регистрация команды <b>{reg['team_name']}</b> отменена."
+    )
+    await callback.answer()
+
+    # Уведомляем капитана
+    try:
+        await bot.send_message(
+            reg["user_telegram_id"],
+            f"❌ <b>Ваша регистрация отменена</b>\n\n"
+            f"Команда: <b>{reg['team_name']}</b>\n\n"
+            f"Если возникли вопросы — свяжитесь с организаторами @razumboy."
+        )
+    except Exception:
+        pass
 
 
 # ── Вспомогательные функции ───────────────────────────────────

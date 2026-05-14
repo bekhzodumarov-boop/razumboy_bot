@@ -629,7 +629,7 @@ async def broadcast_custom_send(message: Message, state: FSMContext, db, bot):
         except Exception:
             pass
 
-    db.save_broadcast(None, text, sent_count)
+    db.save_broadcast(None, text, sent_count, broadcast_type="manual", recipients_info="Все подписчики")
     await message.answer(f"✅ Рассылка завершена. Отправлено: {sent_count}", reply_markup=admin_menu())
     await state.clear()
 
@@ -724,7 +724,7 @@ async def _do_broadcast(message, db, bot, event, text):
             sent_count += 1
         except Exception as e:
             errors.append(f"{user['telegram_id']}: {e}")
-    db.save_broadcast(event["id"], text, sent_count)
+    db.save_broadcast(event["id"], text, sent_count, broadcast_type="manual", recipients_info="Все подписчики")
     result = f"✅ Рассылка завершена. Отправлено: {sent_count} из {len(subscribers)}"
     if errors:
         result += f"\n\n⚠️ Ошибки ({len(errors)}):\n" + "\n".join(errors[:5])
@@ -827,37 +827,70 @@ async def subs_export_csv(callback: CallbackQuery, db, admin_ids: list[int]):
 
 # ── Предыдущие рассылки ───────────────────────────────────────
 
-@router.message(F.text == "📬 История рассылок")
-async def show_broadcasts(message: Message, state: FSMContext, db, admin_ids: list[int]):
-    if not is_admin(message.from_user.id, admin_ids):
-        return
-    await state.clear()
+def _broadcast_filter_kb(active: str = "all") -> InlineKeyboardMarkup:
+    """Кнопки фильтра: Все / Авто / Вручную."""
+    def mark(key):
+        return f"{'✅ ' if active == key else ''}"
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"{mark('all')}📋 Все", callback_data="bcast_filter_all"),
+        InlineKeyboardButton(text=f"{mark('auto')}🤖 Авто", callback_data="bcast_filter_auto"),
+        InlineKeyboardButton(text=f"{mark('manual')}✍️ Вручную", callback_data="bcast_filter_manual"),
+    ]])
 
-    broadcasts = db.get_broadcasts(limit=10)
+
+async def _show_broadcasts_list(target, db, btype: str = "all"):
+    """target — Message или CallbackQuery. btype: 'all', 'auto', 'manual'."""
+    import re as _re
+    filter_arg = None if btype == "all" else btype
+    broadcasts = db.get_broadcasts(limit=20, broadcast_type=filter_arg)
+
+    labels = {"all": "Все рассылки", "auto": "Авторассылки 🤖", "manual": "Ручные рассылки ✍️"}
+    header = f"📬 <b>{labels[btype]} (последние {len(broadcasts)}):</b>"
+
+    is_cb = hasattr(target, "message")
+    send = target.message.answer if is_cb else target.answer
+
     if not broadcasts:
-        await message.answer("Рассылок пока не было.")
+        await send(f"{header}\n\nРассылок пока не было.", reply_markup=_broadcast_filter_kb(btype))
         return
 
-    await message.answer(f"📬 <b>Последние рассылки ({len(broadcasts)}):</b>")
+    await send(header, reply_markup=_broadcast_filter_kb(btype))
 
     for i, b in enumerate(broadcasts, 1):
-        import re as _re
-        event_name = b["event_title"] or "Свой пост"
-        # Убираем HTML-теги перед обрезкой — иначе обрезанный тег ломает разметку
+        btype_icon = "🤖" if b["broadcast_type"] == "auto" else "✍️"
+        label = b["recipients_info"] or b["event_title"] or "Свой пост"
         clean_text = _re.sub(r"<[^>]+>", "", b["message_text"] or "")
         preview = clean_text[:80].replace("\n", " ")
         if len(clean_text) > 80:
             preview += "..."
         sent_at = b["sent_at"][:16].replace("T", " ")
         text = (
-            f"{i}. <b>{event_name}</b>\n"
+            f"{i}. {btype_icon} <b>{label}</b>\n"
             f"📅 {sent_at} | 📨 {b['sent_count']} чел.\n"
             f"<i>{preview}</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="👁 Полный текст", callback_data=f"broadcast_view_{b['id']}")
         ]])
-        await message.answer(text, reply_markup=kb)
+        await send(text, reply_markup=kb)
+
+
+@router.message(F.text == "📬 История рассылок")
+async def show_broadcasts(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    await state.clear()
+    await _show_broadcasts_list(message, db, btype="all")
+
+
+@router.callback_query(F.data.startswith("bcast_filter_"))
+async def broadcasts_filter(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    btype = callback.data.split("bcast_filter_")[1]  # all / auto / manual
+    await callback.answer()
+    await _show_broadcasts_list(callback, db, btype=btype)
 
 
 @router.callback_query(F.data.startswith("broadcast_view_"))
@@ -866,16 +899,16 @@ async def view_broadcast_text(callback: CallbackQuery, db, admin_ids: list[int])
         await callback.answer()
         return
     broadcast_id = int(callback.data.split("_")[-1])
-    broadcasts = db.get_broadcasts(limit=50)
+    broadcasts = db.get_broadcasts(limit=100)
     b = next((x for x in broadcasts if x["id"] == broadcast_id), None)
     if not b:
         await callback.answer("Рассылка не найдена.", show_alert=True)
         return
-    event_name = b["event_title"] or "Свой пост"
+    btype_icon = "🤖" if b["broadcast_type"] == "auto" else "✍️"
+    label = b["recipients_info"] or b["event_title"] or "Свой пост"
     sent_at = b["sent_at"][:16].replace("T", " ")
-    header = f"📬 <b>{event_name}</b> | {sent_at} | {b['sent_count']} чел.\n\n"
+    header = f"{btype_icon} <b>{label}</b> | {sent_at} | {b['sent_count']} чел.\n\n"
     full_text = header + b["message_text"]
-    # Telegram limit 4096 chars
     if len(full_text) > 4096:
         full_text = full_text[:4090] + "..."
     await callback.message.answer(full_text)
@@ -1908,6 +1941,11 @@ async def photo_enter_url(message: Message, state: FSMContext, db, bot):
         except Exception:
             pass
 
+    db.save_broadcast(
+        None, broadcast_text, sent_count,
+        broadcast_type="auto",
+        recipients_info=f"Все подписчики (новый фотоальбом: {title})"
+    )
     await message.answer(
         f"✅ Альбом <b>«📸 {title}»</b> добавлен!\n\n"
         f"📨 Уведомление отправлено {sent_count} из {len(subscribers)} подписчиков.",
@@ -1964,6 +2002,11 @@ async def auto_remind_day_before(bot, db, admin_ids: list):
             except Exception:
                 pass
 
+        db.save_broadcast(
+            event["id"], text, sent,
+            broadcast_type="auto",
+            recipients_info=f"Все подписчики (за день до игры)"
+        )
         for admin_id in admin_ids:
             try:
                 await bot.send_message(
@@ -2010,6 +2053,20 @@ async def auto_remind_day_of(bot, db, admin_ids: list):
             except Exception:
                 pass
 
+        # Сохраняем одну запись с общим текстом-шаблоном (без персональных данных)
+        sample_text = (
+            f"❤️ Добрый день!\n\n"
+            f"Напоминаем - сегодня вечером <b>{event['title']}</b>!\n\n"
+            f"Пожалуйста, уточните у команды точное количество участников.\n\n"
+            f"📍 {location_line}\n"
+            f"⏰ {event['event_time']}\n\n"
+            f"Ждём вас! 💃"
+        )
+        db.save_broadcast(
+            event["id"], sample_text, sent,
+            broadcast_type="auto",
+            recipients_info=f"Зарегистрированные команды (в день игры)"
+        )
         for admin_id in admin_ids:
             try:
                 await bot.send_message(

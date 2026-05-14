@@ -248,6 +248,8 @@ class Database:
             ("events", "photo_file_id", "TEXT"),
             ("events", "location_url", "TEXT"),
             ("giveaway_settings", "active_days", "TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6'"),
+            ("broadcasts", "broadcast_type", "TEXT NOT NULL DEFAULT 'manual'"),
+            ("broadcasts", "recipients_info", "TEXT NOT NULL DEFAULT ''"),
         ]
         with self._connect() as conn:
             for table, column, col_type in migrations:
@@ -684,23 +686,35 @@ class Database:
 
     # ── Рассылки ──────────────────────────────────────────────
 
-    def save_broadcast(self, event_id, message_text, sent_count):
+    def save_broadcast(self, event_id, message_text, sent_count,
+                       broadcast_type: str = "manual", recipients_info: str = ""):
         with self._connect() as conn:
             conn.execute("""
-                INSERT INTO broadcasts (event_id, message_text, sent_count) VALUES (?, ?, ?)
-            """, (event_id, message_text, sent_count))
+                INSERT INTO broadcasts (event_id, message_text, sent_count, broadcast_type, recipients_info)
+                VALUES (?, ?, ?, ?, ?)
+            """, (event_id, message_text, sent_count, broadcast_type, recipients_info))
             conn.commit()
 
-    def get_broadcasts(self, limit=10) -> list:
-        """История последних рассылок"""
+    def get_broadcasts(self, limit: int = 10, broadcast_type: str = None) -> list:
+        """История рассылок. broadcast_type: 'manual', 'auto' или None (все)."""
         with self._connect() as conn:
-            cur = conn.execute("""
-                SELECT b.*, e.title as event_title
-                FROM broadcasts b
-                LEFT JOIN events e ON b.event_id = e.id
-                ORDER BY b.sent_at DESC
-                LIMIT ?
-            """, (limit,))
+            if broadcast_type:
+                cur = conn.execute("""
+                    SELECT b.*, e.title as event_title
+                    FROM broadcasts b
+                    LEFT JOIN events e ON b.event_id = e.id
+                    WHERE b.broadcast_type = ?
+                    ORDER BY b.sent_at DESC
+                    LIMIT ?
+                """, (broadcast_type, limit))
+            else:
+                cur = conn.execute("""
+                    SELECT b.*, e.title as event_title
+                    FROM broadcasts b
+                    LEFT JOIN events e ON b.event_id = e.id
+                    ORDER BY b.sent_at DESC
+                    LIMIT ?
+                """, (limit,))
             return cur.fetchall()
 
     def get_all_subscribers(self) -> list:

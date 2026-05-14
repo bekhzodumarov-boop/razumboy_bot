@@ -78,6 +78,11 @@ async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
             logger.warning(f"giveaway_announce: не удалось отправить {user['telegram_id']}: {e}")
 
     db.update_session_status(session_id, "announced", sent_count=sent_count)
+    db.save_broadcast(
+        None, announce_text, sent_count,
+        broadcast_type="auto",
+        recipients_info="Все подписчики (Рандомбой — анонс розыгрыша 19:30)"
+    )
 
     # Дублируем объявление в канал
     if channel_id:
@@ -204,6 +209,11 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
         db.save_giveaway_winner(w["telegram_id"], w["username"], w["full_name"])
 
     db.update_session_status(session_id, "done")
+    db.save_broadcast(
+        None, congrats_text, len(subscribers),
+        broadcast_type="auto",
+        recipients_info=f"Все подписчики (Рандомбой — результаты жеребьёвки 21:00, победители: {', '.join(winner_mentions)})"
+    )
 
     # Статистика для админов
     stats = (
@@ -256,6 +266,11 @@ async def giveaway_reminder(bot, db, admin_ids: list, channel_id: int = 0):
         except Exception as e:
             logger.warning(f"giveaway_reminder: не удалось отправить {user['telegram_id']}: {e}")
 
+    db.save_broadcast(
+        None, reminder_text, sent,
+        broadcast_type="auto",
+        recipients_info="Не участвующие в розыгрыше (Рандомбой — напоминание 20:50)"
+    )
     logger.info(f"giveaway_reminder: отправлено {sent} из {len(non_participants)} не-участников")
 
 
@@ -385,6 +400,11 @@ async def send_friday_winner_reminders(bot, db, admin_ids: list):
         except Exception as e:
             logger.warning(f"send_friday_winner_reminders: не удалось отправить {w['telegram_id']}: {e}")
 
+    db.save_broadcast(
+        None, WINNER_REMINDER_TEXT, sent,
+        broadcast_type="auto",
+        recipients_info=f"Победители Рандомбой за 5 дней (четверговая рассылка, {today})"
+    )
     # Отправляем список победителей админам
     responses = db.get_winner_reminder_responses(today)
     admin_msg = _format_admin_winner_list(responses, today)

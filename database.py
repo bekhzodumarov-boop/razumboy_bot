@@ -273,6 +273,40 @@ class Database:
             except Exception:
                 pass
 
+            # Исторические победители Рандомбой (из экспорта канала, май 2026)
+            historical_winners = [
+                ('alenabobko',       '2026-05-04 21:00:00'),
+                ('sviper07',         '2026-05-04 21:00:00'),
+                ('timur_ferro',      '2026-05-05 21:00:00'),
+                ('azabdu2006',       '2026-05-05 21:00:00'),
+                ('the_normal_one',   '2026-05-06 21:00:00'),
+                ('stas_dzi',         '2026-05-06 21:00:00'),
+                ('gonrul',           '2026-05-07 21:00:00'),
+                ('mariabelyakova_uz','2026-05-07 21:00:00'),
+                ('azabdu2006',       '2026-05-10 21:00:00'),
+                ('anorarakhimova',   '2026-05-10 21:00:00'),
+                ('r_9014',           '2026-05-11 21:00:00'),
+                ('akakruz',          '2026-05-11 21:00:00'),
+                ('ds8921',           '2026-05-12 21:00:00'),
+                ('fimamova',         '2026-05-12 21:00:00'),
+                ('just_puzzle',      '2026-05-13 21:00:00'),
+                ('habiba_ismailova', '2026-05-13 21:00:00'),
+            ]
+            try:
+                for username, won_at in historical_winners:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO giveaway_winners
+                            (telegram_id, username, full_name, won_at)
+                        SELECT 0, ?, ?, ?
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM giveaway_winners
+                            WHERE username = ? AND date(won_at) = date(?)
+                        )
+                    """, (username, username, won_at, username, won_at))
+                conn.commit()
+            except Exception:
+                pass
+
         # Восстановить резервные данные если БД пустая (первый запуск на Railway Volume)
         self._restore_backup_if_empty()
 

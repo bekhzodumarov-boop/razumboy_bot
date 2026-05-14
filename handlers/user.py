@@ -182,25 +182,36 @@ async def cancel_players(callback: CallbackQuery, db, bot, admin_ids: list[int])
 # ── Победитель Рандомбой: ввод названия команды ───────────────
 
 @router.message(WinnerConfirmState.team_name)
-async def winner_team_name(message: Message, state: FSMContext, bot, admin_ids: list[int]):
+async def winner_team_name(message: Message, state: FSMContext, db, bot, admin_ids: list[int]):
     team_name = message.text.strip() if message.text else ""
     if not team_name:
         await message.answer("Пожалуйста, напишите название команды текстом:")
         return
 
+    data = await state.get_data()
+    reminder_date = data.get("reminder_date", "")
     await state.clear()
+
+    if reminder_date:
+        db.update_winner_reminder_response(
+            telegram_id=message.from_user.id,
+            reminder_date=reminder_date,
+            status="confirmed",
+            team_name=team_name,
+        )
+
     await message.answer(
         f"✅ Спасибо! Команда <b>{team_name}</b> записана.\n\n"
         f"До встречи на игре! 🎉"
     )
 
-    admin_text = (
-        f"🎟 <b>Победитель подтвердил участие</b>\n\n"
-        f"Команда: <b>{team_name}</b>\n"
-        f"User: @{message.from_user.username or 'без username'} ({message.from_user.id})"
-    )
-    for admin_id in admin_ids:
-        try:
-            await bot.send_message(admin_id, admin_text)
-        except Exception:
-            pass
+    # Отправляем админам обновлённый список
+    if reminder_date:
+        from handlers.giveaway import _format_admin_winner_list
+        responses = db.get_winner_reminder_responses(reminder_date)
+        admin_msg = _format_admin_winner_list(responses, reminder_date)
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(admin_id, admin_msg)
+            except Exception:
+                pass

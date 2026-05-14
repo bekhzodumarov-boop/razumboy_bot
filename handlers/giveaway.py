@@ -277,11 +277,32 @@ WINNER_REMINDER_TEXT = (
 )
 
 
-def _winner_reminder_kb() -> InlineKeyboardMarkup:
+def _winner_reminder_kb(date_compact: str) -> InlineKeyboardMarkup:
+    """date_compact — дата без дефисов: YYYYMMDD"""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Да, приму участие", callback_data="winner_yes")],
-        [InlineKeyboardButton(text="❌ К сожалению, не смогу принять участие", callback_data="winner_no")],
+        [InlineKeyboardButton(
+            text="✅ Да, приму участие",
+            callback_data=f"winner_yes_{date_compact}"
+        )],
+        [InlineKeyboardButton(
+            text="❌ К сожалению, не смогу принять участие",
+            callback_data=f"winner_no_{date_compact}"
+        )],
     ])
+
+
+def _format_admin_winner_list(responses, reminder_date: str) -> str:
+    """Форматирует список победителей с иконками статуса для админа."""
+    icons = {"pending": "⏳", "confirmed": "✅", "declined": "❌"}
+    lines = [f"🎟 <b>Победители Рандомбой ({reminder_date}):</b>\n"]
+    for r in responses:
+        icon = icons.get(r["status"], "⏳")
+        mention = f"@{r['username']}" if r["username"] else r["full_name"] or f"id{r['telegram_id']}"
+        line = f"{icon} {mention}"
+        if r["status"] == "confirmed" and r["team_name"]:
+            line += f" — {r['team_name']}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 async def send_friday_winner_reminders(bot, db, admin_ids: list):
@@ -291,45 +312,77 @@ async def send_friday_winner_reminders(bot, db, admin_ids: list):
         logger.info("send_friday_winner_reminders: победителей за 7 дней нет")
         return
 
+    today = _today()
+    date_compact = today.replace("-", "")  # YYYYMMDD
+
     sent = 0
     for w in winners:
+        # Создаём запись ответа со статусом pending
+        db.create_winner_reminder_response(
+            telegram_id=w["telegram_id"],
+            username=w["username"],
+            full_name=w["full_name"],
+            reminder_date=today,
+        )
         try:
             await bot.send_message(
                 w["telegram_id"],
                 WINNER_REMINDER_TEXT,
-                reply_markup=_winner_reminder_kb(),
+                reply_markup=_winner_reminder_kb(date_compact),
             )
             sent += 1
         except Exception as e:
             logger.warning(f"send_friday_winner_reminders: не удалось отправить {w['telegram_id']}: {e}")
 
+    # Отправляем список победителей админам
+    responses = db.get_winner_reminder_responses(today)
+    admin_msg = _format_admin_winner_list(responses, today)
+    admin_msg += f"\n\n📩 Отправлено: {sent} из {len(winners)}"
     for admin_id in admin_ids:
         try:
-            await bot.send_message(
-                admin_id,
-                f"📩 <b>Пятничная рассылка победителям</b>\n\nОтправлено: {sent} из {len(winners)} победителей"
-            )
+            await bot.send_message(admin_id, admin_msg)
         except Exception:
             pass
 
 
 # ── Callbacks ответа победителя ────────────────────────────────
 
-@router.callback_query(F.data == "winner_yes")
+@router.callback_query(F.data.startswith("winner_yes_"))
 async def winner_confirm_yes(callback: CallbackQuery, state):
     """Победитель подтверждает участие — переводим в FSM для получения названия команды."""
     from states import WinnerConfirmState
+    date_compact = callback.data.split("winner_yes_")[1]
+    reminder_date = f"{date_compact[:4]}-{date_compact[4:6]}-{date_compact[6:8]}"
     await state.set_state(WinnerConfirmState.team_name)
+    await state.update_data(reminder_date=reminder_date)
     await callback.message.answer(
         "Отлично! Напишите, пожалуйста, <b>название вашей команды</b>:"
     )
     await callback.answer()
 
 
-@router.callback_query(F.data == "winner_no")
-async def winner_confirm_no(callback: CallbackQuery):
+@router.callback_query(F.data.startswith("winner_no_"))
+async def winner_confirm_no(callback: CallbackQuery, db, bot, admin_ids: list):
+    date_compact = callback.data.split("winner_no_")[1]
+    reminder_date = f"{date_compact[:4]}-{date_compact[4:6]}-{date_compact[6:8]}"
+
+    db.update_winner_reminder_response(
+        telegram_id=callback.from_user.id,
+        reminder_date=reminder_date,
+        status="declined",
+    )
+
     await callback.message.answer(
         "Жаль! Ничего страшного. Удачи в следующий раз! 🍀\n\n"
         "Если передумаете — напишите @razumboy."
     )
     await callback.answer()
+
+    # Обновляем список у админов
+    responses = db.get_winner_reminder_responses(reminder_date)
+    admin_msg = _format_admin_winner_list(responses, reminder_date)
+    for admin_id in admin_ids:
+        try:
+            await bot.send_message(admin_id, admin_msg)
+        except Exception:
+            pass

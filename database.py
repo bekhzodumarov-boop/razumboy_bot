@@ -203,6 +203,20 @@ class Database:
             )
             """)
 
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS winner_reminder_responses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                username TEXT,
+                full_name TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                team_name TEXT,
+                reminder_date TEXT NOT NULL,
+                responded_at TEXT,
+                UNIQUE(telegram_id, reminder_date)
+            )
+            """)
+
             # Seed исходных альбомов (INSERT OR IGNORE — не дублируются)
             initial_albums = [
                 ("29 марта, Razumbooo", "https://t.me/razumboyphotos/12138"),
@@ -874,6 +888,37 @@ class Database:
                 ORDER BY won_at DESC
             """, (f'-{days} days',))
             return cur.fetchall()
+
+    def create_winner_reminder_response(self, telegram_id: int, username: str,
+                                         full_name: str, reminder_date: str):
+        """Создать запись ответа победителя (pending) при рассылке напоминания."""
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT OR IGNORE INTO winner_reminder_responses
+                    (telegram_id, username, full_name, status, reminder_date)
+                VALUES (?, ?, ?, 'pending', ?)
+            """, (telegram_id, username or "", full_name or "", reminder_date))
+            conn.commit()
+
+    def update_winner_reminder_response(self, telegram_id: int, reminder_date: str,
+                                         status: str, team_name: str = None):
+        """Обновить статус ответа победителя (confirmed/declined)."""
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE winner_reminder_responses
+                SET status=?, team_name=?, responded_at=CURRENT_TIMESTAMP
+                WHERE telegram_id=? AND reminder_date=?
+            """, (status, team_name, telegram_id, reminder_date))
+            conn.commit()
+
+    def get_winner_reminder_responses(self, reminder_date: str) -> list:
+        """Все ответы на напоминание за указанную дату."""
+        with self._connect() as conn:
+            return conn.execute("""
+                SELECT * FROM winner_reminder_responses
+                WHERE reminder_date=?
+                ORDER BY id ASC
+            """, (reminder_date,)).fetchall()
 
     def get_registration_with_user(self, reg_id: int) -> Optional[sqlite3.Row]:
         """Регистрация + telegram_id капитана для уведомления."""

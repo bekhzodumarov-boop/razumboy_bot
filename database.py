@@ -912,13 +912,13 @@ class Database:
             conn.commit()
 
     def get_giveaway_winners_since(self, days: int = 7) -> list:
-        """Победители за последние N дней (уникальные по telegram_id)."""
+        """Победители за последние N дней. Дедупликация по (username, дата)."""
         with self._connect() as conn:
             cur = conn.execute("""
-                SELECT telegram_id, username, full_name, MAX(won_at) as won_at
+                SELECT telegram_id, username, full_name, won_at
                 FROM giveaway_winners
                 WHERE won_at >= datetime('now', ?)
-                GROUP BY telegram_id
+                GROUP BY username, date(won_at)
                 ORDER BY won_at DESC
             """, (f'-{days} days',))
             return cur.fetchall()

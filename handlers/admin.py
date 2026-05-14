@@ -941,8 +941,37 @@ async def giveaway_winners_menu(message: Message, state: FSMContext, admin_ids: 
         [InlineKeyboardButton(text="📅 За последние 5 дней",  callback_data="winners_5")],
         [InlineKeyboardButton(text="📅 За последние 30 дней", callback_data="winners_30")],
         [InlineKeyboardButton(text="📜 За всё время",         callback_data="winners_all")],
+        [InlineKeyboardButton(text="🔗 Обновить Telegram ID победителей", callback_data="winners_resolve_ids")],
     ])
     await message.answer("🏆 <b>Победители Рандомбой</b>\n\nВыберите период:", reply_markup=kb)
+
+
+@router.callback_query(F.data == "winners_resolve_ids")
+async def winners_resolve_ids(callback: CallbackQuery, db, admin_ids: list[int]):
+    """Подтягивает telegram_id победителей по username из таблицы users."""
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+
+    # До обновления — считаем сколько без ID
+    before = db.count_winners_without_id()
+    db.resolve_winner_telegram_ids()
+    after = db.count_winners_without_id()
+    found = before - after
+
+    if found > 0:
+        await callback.message.answer(
+            f"✅ Обновлено: найдено <b>{found}</b> Telegram ID по username.\n"
+            f"Ещё без ID: <b>{after}</b> победителей (они не запускали бота)."
+        )
+    else:
+        await callback.message.answer(
+            f"ℹ️ Новых совпадений не найдено.\n\n"
+            f"Победителей без Telegram ID: <b>{after}</b>\n\n"
+            f"Эти пользователи ещё не запускали @Razumboy_Bot. "
+            f"Как только они это сделают — их ID появится автоматически."
+        )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("winners_") & ~F.data.startswith("winners_send_") & ~F.data.startswith("winners_broadcast_"))

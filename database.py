@@ -371,6 +371,26 @@ class Database:
             except Exception:
                 pass
 
+            # Подтянуть telegram_id победителей по username из таблицы users
+            try:
+                conn.execute("""
+                    UPDATE giveaway_winners
+                    SET telegram_id = (
+                        SELECT u.telegram_id FROM users u
+                        WHERE lower(u.username) = lower(giveaway_winners.username)
+                        LIMIT 1
+                    )
+                    WHERE telegram_id = 0
+                      AND username != ''
+                      AND EXISTS (
+                          SELECT 1 FROM users u
+                          WHERE lower(u.username) = lower(giveaway_winners.username)
+                      )
+                """)
+                conn.commit()
+            except Exception:
+                pass
+
         # Восстановить резервные данные если БД пустая (первый запуск на Railway Volume)
         self._restore_backup_if_empty()
 
@@ -975,6 +995,33 @@ class Database:
             row = conn.execute(
                 "SELECT COUNT(*) as cnt FROM giveaway_participants WHERE session_id = ?",
                 (session_id,)
+            ).fetchone()
+            return row["cnt"] if row else 0
+
+    def resolve_winner_telegram_ids(self):
+        """Подтягивает telegram_id победителей по username из таблицы users."""
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE giveaway_winners
+                SET telegram_id = (
+                    SELECT u.telegram_id FROM users u
+                    WHERE lower(u.username) = lower(giveaway_winners.username)
+                    LIMIT 1
+                )
+                WHERE telegram_id = 0
+                  AND username != ''
+                  AND EXISTS (
+                      SELECT 1 FROM users u
+                      WHERE lower(u.username) = lower(giveaway_winners.username)
+                  )
+            """)
+            conn.commit()
+
+    def count_winners_without_id(self) -> int:
+        """Количество победителей с telegram_id = 0."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM giveaway_winners WHERE telegram_id = 0"
             ).fetchone()
             return row["cnt"] if row else 0
 

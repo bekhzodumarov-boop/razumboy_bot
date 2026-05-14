@@ -17,6 +17,9 @@ router = Router()
 
 TASHKENT_OFFSET = datetime.timezone(datetime.timedelta(hours=5))
 
+# Новые тексты и дата начала рассылки
+GIVEAWAY_START_DATE = datetime.date(2026, 5, 17)
+
 
 def _today() -> str:
     return datetime.datetime.now(tz=TASHKENT_OFFSET).strftime("%Y-%m-%d")
@@ -235,9 +238,11 @@ async def giveaway_reminder(bot, db, admin_ids: list, channel_id: int = 0):
         return
 
     reminder_text = (
-        "⏰ <b>Последние минуты!</b>\n\n"
-        "Через 10 минут пройдёт жеребьёвка бесплатных проходок на Разумбой. "
-        "Успей нажать кнопку ниже — и у тебя есть шанс выиграть! 🍀"
+        "⏰ <b>Ещё 10 минут до жеребьёвки!</b>\n\n"
+        "Ты ещё не нажал <b>«Участвую»</b>? Самое время - в <b>21:00</b> "
+        "Рандомбой выберет победителей 🎲\n\n"
+        "🧢 На кону - фирменная кепка <b>Разумбой</b>!\n\n"
+        "Не упусти шанс. Жми прямо сейчас! 👇"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Участвую!", callback_data=f"giveaway_join_{session_id}")
@@ -263,6 +268,11 @@ def _today_weekday() -> int:
 
 async def check_giveaway_schedule(bot, db, admin_ids: list, channel_id: int = 0):
     """Проверяет расписание и запускает announce/draw в нужное время."""
+    # Рандомбой с кепками стартует с 17 мая 2026
+    today_date = datetime.datetime.now(tz=TASHKENT_OFFSET).date()
+    if today_date < GIVEAWAY_START_DATE:
+        return
+
     settings = db.get_giveaway_settings()
     if not settings or not settings["active"]:
         return

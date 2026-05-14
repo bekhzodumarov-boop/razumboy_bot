@@ -930,6 +930,66 @@ async def cancel_event_do(callback: CallbackQuery, state: FSMContext, db, bot):
     await callback.answer()
 
 
+# ── Победители Рандомбой ──────────────────────────────────────
+
+@router.message(F.text == "🏆 Победители Рандомбой")
+async def giveaway_winners_menu(message: Message, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 За последние 7 дней",  callback_data="winners_7")],
+        [InlineKeyboardButton(text="📅 За последние 30 дней", callback_data="winners_30")],
+        [InlineKeyboardButton(text="📜 За всё время",         callback_data="winners_all")],
+    ])
+    await message.answer("🏆 <b>Победители Рандомбой</b>\n\nВыберите период:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("winners_"))
+async def show_giveaway_winners(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+
+    period = callback.data.split("_")[1]  # "7", "30", "all"
+
+    if period == "all":
+        winners = db.get_giveaway_winners_since(days=36500)  # ~100 лет = все
+        label = "за всё время"
+    else:
+        days = int(period)
+        winners = db.get_giveaway_winners_since(days=days)
+        label = f"за последние {days} дней"
+
+    if not winners:
+        await callback.message.answer(f"Победителей {label} нет.")
+        await callback.answer()
+        return
+
+    lines = [f"🏆 <b>Победители Рандомбой {label} ({len(winners)} чел.):</b>\n"]
+    for i, w in enumerate(winners, 1):
+        mention = f"@{w['username']}" if w["username"] else w["full_name"] or f"id{w['telegram_id']}"
+        won_date = w["won_at"][:10]  # YYYY-MM-DD
+        lines.append(f"{i}. {mention} — {won_date}")
+
+    # Разбиваем на части если список большой
+    text = "\n".join(lines)
+    if len(text) <= 4096:
+        await callback.message.answer(text)
+    else:
+        chunk = []
+        header = lines[0]
+        for line in lines[1:]:
+            chunk.append(line)
+            if len(header + "\n" + "\n".join(chunk)) > 3800:
+                await callback.message.answer(header + "\n" + "\n".join(chunk[:-1]))
+                chunk = [line]
+        if chunk:
+            await callback.message.answer(header + "\n" + "\n".join(chunk))
+
+    await callback.answer()
+
+
 # ── Рандомбой ─────────────────────────────────────────────────
 
 @router.message(F.text == "🎲 Рандомбой")

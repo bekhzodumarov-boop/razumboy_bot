@@ -151,7 +151,7 @@ class Database:
                 announce_text TEXT NOT NULL DEFAULT '',
                 congrats_text TEXT NOT NULL DEFAULT '',
                 image_file_id TEXT,
-                announce_time TEXT NOT NULL DEFAULT '20:30',
+                announce_time TEXT NOT NULL DEFAULT '19:30',
                 draw_time TEXT NOT NULL DEFAULT '21:00',
                 winners_count INTEGER NOT NULL DEFAULT 2,
                 active INTEGER NOT NULL DEFAULT 0,
@@ -268,6 +268,15 @@ class Database:
             try:
                 conn.execute(
                     "UPDATE giveaway_settings SET announce_time = '20:30' WHERE announce_time = '20:50'"
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+            # Обновить время объявления с 20:30 на 19:30
+            try:
+                conn.execute(
+                    "UPDATE giveaway_settings SET announce_time = '19:30' WHERE announce_time = '20:30'"
                 )
                 conn.commit()
             except Exception:
@@ -893,6 +902,18 @@ class Database:
                 "SELECT * FROM giveaway_participants WHERE session_id = ?",
                 (session_id,)
             ).fetchall()
+
+    def get_giveaway_non_participants(self, session_id: int) -> list:
+        """Подписчики, которые ещё не нажали кнопку участия в сессии."""
+        with self._connect() as conn:
+            return conn.execute("""
+                SELECT telegram_id FROM users
+                WHERE subscribed = 1
+                  AND telegram_id NOT IN (
+                      SELECT telegram_id FROM giveaway_participants
+                      WHERE session_id = ?
+                  )
+            """, (session_id,)).fetchall()
 
     def count_giveaway_participants(self, session_id: int) -> int:
         with self._connect() as conn:

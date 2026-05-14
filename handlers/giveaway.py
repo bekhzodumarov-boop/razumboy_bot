@@ -216,6 +216,44 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
             pass
 
 
+# ── Напоминание за 10 минут до жеребьёвки ─────────────────────
+
+async def giveaway_reminder(bot, db, admin_ids: list, channel_id: int = 0):
+    """Отправляет напоминание не-участникам в 20:50 — за 10 минут до жеребьёвки."""
+    settings = db.get_giveaway_settings()
+    if not settings or not settings["active"]:
+        return
+
+    today = _today()
+    session = db.get_giveaway_session(today)
+    if not session or session["status"] != "announced":
+        return  # объявления не было или жеребьёвка уже прошла
+
+    session_id = session["id"]
+    non_participants = db.get_giveaway_non_participants(session_id)
+    if not non_participants:
+        return
+
+    reminder_text = (
+        "⏰ <b>Последние минуты!</b>\n\n"
+        "Через 10 минут пройдёт жеребьёвка бесплатных проходок на Разумбой. "
+        "Успей нажать кнопку ниже — и у тебя есть шанс выиграть! 🍀"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Участвую!", callback_data=f"giveaway_join_{session_id}")
+    ]])
+
+    sent = 0
+    for user in non_participants:
+        try:
+            await bot.send_message(user["telegram_id"], reminder_text, reply_markup=kb)
+            sent += 1
+        except Exception as e:
+            logger.warning(f"giveaway_reminder: не удалось отправить {user['telegram_id']}: {e}")
+
+    logger.info(f"giveaway_reminder: отправлено {sent} из {len(non_participants)} не-участников")
+
+
 # ── Проверка расписания (вызывается каждую минуту из APScheduler) ──
 
 def _today_weekday() -> int:
@@ -239,6 +277,8 @@ async def check_giveaway_schedule(bot, db, admin_ids: list, channel_id: int = 0)
 
     if now == settings["announce_time"]:
         await giveaway_announce(bot, db, admin_ids, channel_id)
+    elif now == "20:50":
+        await giveaway_reminder(bot, db, admin_ids, channel_id)
     elif now == settings["draw_time"]:
         await giveaway_draw(bot, db, admin_ids, channel_id)
 

@@ -306,10 +306,10 @@ def _format_admin_winner_list(responses, reminder_date: str) -> str:
 
 
 async def send_friday_winner_reminders(bot, db, admin_ids: list):
-    """Рассылка победителям Рандомбой за последние 7 дней — каждую пятницу в 10:30."""
-    winners = db.get_giveaway_winners_since(days=7)
+    """Рассылка победителям Рандомбой за последние 5 дней — каждый четверг в 21:10."""
+    winners = db.get_giveaway_winners_since(days=5)
     if not winners:
-        logger.info("send_friday_winner_reminders: победителей за 7 дней нет")
+        logger.info("send_friday_winner_reminders: победителей за 5 дней нет")
         return
 
     today = _today()

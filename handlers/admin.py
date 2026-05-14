@@ -938,7 +938,7 @@ async def giveaway_winners_menu(message: Message, state: FSMContext, admin_ids: 
         return
     await state.clear()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📅 За последние 7 дней",  callback_data="winners_7")],
+        [InlineKeyboardButton(text="📅 За последние 5 дней",  callback_data="winners_5")],
         [InlineKeyboardButton(text="📅 За последние 30 дней", callback_data="winners_30")],
         [InlineKeyboardButton(text="📜 За всё время",         callback_data="winners_all")],
     ])

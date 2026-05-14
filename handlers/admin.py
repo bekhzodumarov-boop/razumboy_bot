@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
-from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState
+from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState
 
 router = Router()
 
@@ -744,22 +744,36 @@ def _reply_confirm_kb(registration_id):
     ])
 
 
-# ── Подписчики ────────────────────────────────────────────────
+# ── Подписчики (список + CSV) ─────────────────────────────────
 
 @router.message(F.text == "👥 Подписчики")
-async def show_subscribers(message: Message, state: FSMContext, db, admin_ids: list[int]):
+async def show_subscribers_menu(message: Message, state: FSMContext, db, admin_ids: list[int]):
     if not is_admin(message.from_user.id, admin_ids):
         return
     await state.clear()
-
     count = db.get_subscribers_count()
-    subscribers = db.get_all_subscribers()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👁 Просмотреть список", callback_data="subs_view_list")],
+        [InlineKeyboardButton(text="📥 Скачать CSV (профили)", callback_data="subs_export_csv")],
+    ])
+    await message.answer(
+        f"👥 <b>Подписчики: {count} чел.</b>\n\nВыберите действие:",
+        reply_markup=kb
+    )
 
+
+@router.callback_query(F.data == "subs_view_list")
+async def subs_view_list(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    subscribers = db.get_all_subscribers()
+    count = len(subscribers)
     if not subscribers:
-        await message.answer("Подписчиков пока нет.")
+        await callback.message.answer("Подписчиков пока нет.")
+        await callback.answer()
         return
 
-    # Разбиваем на части по 30 человек — чтобы не превышать лимит Telegram
     header = f"👥 <b>Подписчики: {count} чел.</b>\n\n"
     lines = []
     for i, user in enumerate(subscribers, 1):
@@ -769,12 +783,46 @@ async def show_subscribers(message: Message, state: FSMContext, db, admin_ids: l
             link = f'<a href="tg://user?id={user["telegram_id"]}">{user["full_name"] or "Без имени"}</a>'
         lines.append(f"{i}. {link}")
 
-    # Отправляем по частям если список большой
     chunk_size = 30
     for start in range(0, len(lines), chunk_size):
         chunk = lines[start:start + chunk_size]
         text = (header if start == 0 else "") + "\n".join(chunk)
-        await message.answer(text)
+        await callback.message.answer(text)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "subs_export_csv")
+async def subs_export_csv(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    profiles = db.get_all_subscriber_profiles()
+    if not profiles:
+        await callback.message.answer("База подписчиков пуста.")
+        await callback.answer()
+        return
+
+    lines = ["№,Имя,Фамилия,Пол,Возраст,Телефон,Username,Telegram ID,Дата регистрации"]
+    for i, p in enumerate(profiles, 1):
+        username = f"@{p['username']}" if p.get('username') else ""
+        lines.append(
+            f"{i},"
+            f"\"{p['first_name'] or ''}\","
+            f"\"{p['last_name'] or ''}\","
+            f"\"{p['gender'] or ''}\","
+            f"\"{p['age'] or ''}\","
+            f"{p['phone'] or ''},"
+            f"{username},"
+            f"{p['telegram_id']},"
+            f"{p['created_at'][:10]}"
+        )
+
+    csv_content = "\n".join(lines).encode("utf-8-sig")
+    await callback.message.answer_document(
+        document=BufferedInputFile(csv_content, filename="subscribers_profile.csv"),
+        caption=f"📥 База подписчиков — {len(profiles)} чел."
+    )
+    await callback.answer()
 
 
 # ── Предыдущие рассылки ───────────────────────────────────────
@@ -1460,39 +1508,7 @@ async def past_event_registrations(callback: CallbackQuery, db, admin_ids: list[
     await callback.answer()
 
 
-# ── База подписчиков (экспорт) ────────────────────────────────
-
-@router.message(F.text == "📥 База подписчиков")
-async def export_subscribers(message: Message, state: FSMContext, db, admin_ids: list[int]):
-    if not is_admin(message.from_user.id, admin_ids):
-        return
-    await state.clear()
-    profiles = db.get_all_subscriber_profiles()
-    if not profiles:
-        await message.answer("База подписчиков пуста.")
-        return
-
-    lines = ["№,Имя,Фамилия,Пол,Возраст,Телефон,Username,Telegram ID,Дата регистрации"]
-    for i, p in enumerate(profiles, 1):
-        username = f"@{p['username']}" if p.get('username') else ""
-        lines.append(
-            f"{i},"
-            f"\"{p['first_name'] or ''}\","
-            f"\"{p['last_name'] or ''}\","
-            f"\"{p['gender'] or ''}\","
-            f"\"{p['age'] or ''}\","
-            f"{p['phone'] or ''},"
-            f"{username},"
-            f"{p['telegram_id']},"
-            f"{p['created_at'][:10]}"
-        )
-
-    csv_content = "\n".join(lines).encode("utf-8-sig")
-    filename = "subscribers_profile.csv"
-    await message.answer_document(
-        document=BufferedInputFile(csv_content, filename=filename),
-        caption=f"📥 База подписчиков — {len(profiles)} чел."
-    )
+# ── (📥 База подписчиков удалена, объединена с 👥 Подписчики) ──
 
 
 # ── Проходка — розыгрыш ───────────────────────────────────────
@@ -1544,6 +1560,7 @@ def _giveaway_menu_kb(has_settings: bool, active: bool) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📅 Дни недели", callback_data="gw_edit_days")],
         [InlineKeyboardButton(text=toggle, callback_data="gw_toggle")],
         [InlineKeyboardButton(text="▶️ Запустить сейчас", callback_data="gw_run_now")],
+        [InlineKeyboardButton(text="📊 Статистика гивэвея", callback_data="gw_stats")],
     ])
 
 
@@ -1759,6 +1776,42 @@ async def gw_toggle(callback: CallbackQuery, db, admin_ids: list[int]):
     await callback.answer()
 
 
+@router.callback_query(F.data == "gw_stats")
+async def gw_stats(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+
+    s = db.get_giveaway_stats()
+
+    top_lines = []
+    for i, w in enumerate(s["top_winners"], 1):
+        top_lines.append(f"  {i}. @{w['username']} — {w['wins']} раз")
+    top_text = "\n".join(top_lines) if top_lines else "  нет данных"
+
+    eng_yesterday = f"{s['engagement_yesterday']}%" if s["engagement_yesterday"] is not None else "нет данных"
+
+    text = (
+        f"📊 <b>Статистика Рандомбой-гивэвея</b>\n\n"
+        f"📅 <b>Вчера:</b>\n"
+        f"  Получили рассылку: {s['yesterday_sent']} чел.\n"
+        f"  Участвовали: {s['yesterday_participants']} чел.\n"
+        f"  Вовлечённость: {eng_yesterday}\n\n"
+        f"📈 <b>За последние 7 дней:</b>\n"
+        f"  Среднее участников/день: {s['avg_7_days']} чел.\n"
+        f"  Вовлечённость: {s['engagement_7']}% от подписчиков\n\n"
+        f"🏆 <b>Победители всего:</b>\n"
+        f"  Всего побед: {s['total_wins']}\n"
+        f"  Уникальных победителей: {s['unique_winners']}\n"
+        f"  Побеждали >1 раза: {s['multi_winners']} чел.\n\n"
+        f"🥇 <b>Топ-5 победителей:</b>\n{top_text}\n\n"
+        f"👥 Подписчиков сейчас: {s['total_subs']}\n"
+        f"🎲 Проведено розыгрышей: {s['total_sessions']}"
+    )
+    await callback.message.answer(text)
+    await callback.answer()
+
+
 @router.callback_query(F.data == "gw_run_now")
 async def gw_run_now(callback: CallbackQuery, db, bot, admin_ids: list[int]):
     """Ручной запуск — сначала рассылка, через сообщение админ запускает жеребьёвку."""
@@ -1871,6 +1924,158 @@ async def photo_delete(callback: CallbackQuery, db, admin_ids: list[int]):
     db.delete_photo_album(album_id)
     await callback.message.answer("🗑 Альбом удалён.", reply_markup=admin_menu())
     await callback.answer()
+
+
+# ── Шаблоны рассылок ─────────────────────────────────────────
+
+def _templates_kb(templates) -> InlineKeyboardMarkup:
+    buttons = []
+    for t in templates:
+        preview = t["title"]
+        buttons.append([
+            InlineKeyboardButton(text=f"▶️ {preview}", callback_data=f"tmpl_use_{t['id']}"),
+            InlineKeyboardButton(text="✏️", callback_data=f"tmpl_edit_{t['id']}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"tmpl_del_{t['id']}"),
+        ])
+    buttons.append([InlineKeyboardButton(text="➕ Новый шаблон", callback_data="tmpl_new")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.message(F.text == "📋 Шаблоны рассылок")
+async def broadcast_templates_menu(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    await state.clear()
+    templates = db.get_broadcast_templates()
+    if not templates:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="➕ Создать первый шаблон", callback_data="tmpl_new")
+        ]])
+        await message.answer("📋 <b>Шаблоны рассылок</b>\n\nШаблонов пока нет.", reply_markup=kb)
+        return
+    await message.answer(
+        f"📋 <b>Шаблоны рассылок ({len(templates)} шт.)</b>\n\n"
+        f"▶️ — использовать  ✏️ — изменить текст  🗑 — удалить",
+        reply_markup=_templates_kb(templates)
+    )
+
+
+@router.callback_query(F.data == "broadcast_from_template")
+async def broadcast_from_template(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    templates = db.get_broadcast_templates()
+    if not templates:
+        await callback.message.answer(
+            "Шаблонов пока нет. Создайте через «📋 Шаблоны рассылок» в меню."
+        )
+        await callback.answer()
+        return
+    await callback.message.answer(
+        "Выберите шаблон для рассылки:",
+        reply_markup=_templates_kb(templates)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "tmpl_new")
+async def tmpl_new(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.set_state(AdminBroadcastTemplateState.new_title)
+    await callback.message.answer("Введите <b>название шаблона</b> (для вашего удобства):\nПример: «Анонс пятницы»")
+    await callback.answer()
+
+
+@router.message(AdminBroadcastTemplateState.new_title, F.text)
+async def tmpl_new_title(message: Message, state: FSMContext):
+    await state.update_data(tmpl_title=message.text.strip())
+    await state.set_state(AdminBroadcastTemplateState.new_text)
+    await message.answer("Теперь введите <b>текст шаблона</b>:")
+
+
+@router.message(AdminBroadcastTemplateState.new_text, F.text)
+async def tmpl_new_text(message: Message, state: FSMContext, db):
+    data = await state.get_data()
+    title = data["tmpl_title"]
+    text = message.text.strip()
+    db.save_broadcast_template(title, text)
+    await state.clear()
+    templates = db.get_broadcast_templates()
+    await message.answer(
+        f"✅ Шаблон <b>«{title}»</b> сохранён!",
+        reply_markup=_templates_kb(templates)
+    )
+
+
+@router.callback_query(F.data.startswith("tmpl_use_"))
+async def tmpl_use(callback: CallbackQuery, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    tmpl_id = int(callback.data.split("tmpl_use_")[1])
+    tmpl = db.get_broadcast_template(tmpl_id)
+    if not tmpl:
+        await callback.answer("Шаблон не найден.", show_alert=True)
+        return
+    await state.update_data(custom_text=tmpl["text"])
+    await state.set_state(AdminBroadcastState.custom_photo)
+    await callback.message.answer(
+        f"📋 Шаблон <b>«{tmpl['title']}»</b> загружен.\n\n"
+        f"Прикрепите картинку или напишите <b>-</b> чтобы без картинки:"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("tmpl_edit_"))
+async def tmpl_edit(callback: CallbackQuery, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    tmpl_id = int(callback.data.split("tmpl_edit_")[1])
+    tmpl = db.get_broadcast_template(tmpl_id)
+    if not tmpl:
+        await callback.answer("Шаблон не найден.", show_alert=True)
+        return
+    await state.set_state(AdminBroadcastTemplateState.edit_text)
+    await state.update_data(edit_tmpl_id=tmpl_id)
+    await callback.message.answer(
+        f"✏️ Редактирование шаблона <b>«{tmpl['title']}»</b>\n\n"
+        f"Текущий текст:\n<i>{tmpl['text'][:300]}{'...' if len(tmpl['text']) > 300 else ''}</i>\n\n"
+        f"Введите новый текст:"
+    )
+    await callback.answer()
+
+
+@router.message(AdminBroadcastTemplateState.edit_text, F.text)
+async def tmpl_edit_save(message: Message, state: FSMContext, db):
+    data = await state.get_data()
+    tmpl_id = data["edit_tmpl_id"]
+    db.update_broadcast_template_text(tmpl_id, message.text.strip())
+    await state.clear()
+    tmpl = db.get_broadcast_template(tmpl_id)
+    templates = db.get_broadcast_templates()
+    await message.answer(
+        f"✅ Шаблон <b>«{tmpl['title']}»</b> обновлён!",
+        reply_markup=_templates_kb(templates)
+    )
+
+
+@router.callback_query(F.data.startswith("tmpl_del_"))
+async def tmpl_del(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    tmpl_id = int(callback.data.split("tmpl_del_")[1])
+    db.delete_broadcast_template(tmpl_id)
+    templates = db.get_broadcast_templates()
+    if templates:
+        await callback.message.edit_reply_markup(reply_markup=_templates_kb(templates))
+    else:
+        await callback.message.answer("Шаблон удалён. Шаблонов больше нет.")
+    await callback.answer("🗑 Удалено")
 
 
 @router.message(F.text & ~F.text.startswith("/"))

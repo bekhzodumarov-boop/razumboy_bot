@@ -53,10 +53,13 @@ class BlitzQuizState(StatesGroup):
 
 class SubscribeState(StatesGroup):
     first_name = State()
-    last_name = State()
-    gender = State()
-    age = State()
     phone = State()
+
+
+class AdminBroadcastTemplateState(StatesGroup):
+    new_title = State()   # название нового шаблона
+    new_text = State()    # текст нового шаблона
+    edit_text = State()   # редактирование текста шаблона
 
 
 class AdminPhotoAlbumState(StatesGroup):

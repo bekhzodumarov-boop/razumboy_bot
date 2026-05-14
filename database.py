@@ -204,6 +204,15 @@ class Database:
             """)
 
             cur.execute("""
+            CREATE TABLE IF NOT EXISTS broadcast_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS winner_reminder_responses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 telegram_id INTEGER NOT NULL,
@@ -1076,6 +1085,134 @@ class Database:
                 WHERE reminder_date=?
                 ORDER BY id ASC
             """, (reminder_date,)).fetchall()
+
+    # ── Шаблоны рассылок ─────────────────────────────────────────
+
+    def get_broadcast_templates(self) -> list:
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM broadcast_templates ORDER BY created_at DESC"
+            ).fetchall()
+
+    def get_broadcast_template(self, template_id: int) -> Optional[sqlite3.Row]:
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM broadcast_templates WHERE id = ?", (template_id,)
+            ).fetchone()
+
+    def save_broadcast_template(self, title: str, text: str) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO broadcast_templates (title, text) VALUES (?, ?)",
+                (title, text)
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def update_broadcast_template_text(self, template_id: int, text: str):
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE broadcast_templates SET text = ? WHERE id = ?",
+                (text, template_id)
+            )
+            conn.commit()
+
+    def delete_broadcast_template(self, template_id: int):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM broadcast_templates WHERE id = ?", (template_id,))
+            conn.commit()
+
+    # ── Статистика гивэвея ────────────────────────────────────────
+
+    def get_giveaway_stats(self) -> dict:
+        """Полная статистика Рандомбой-гивэвея."""
+        import datetime
+        tz = datetime.timezone(datetime.timedelta(hours=5))
+        today = datetime.datetime.now(tz=tz).strftime("%Y-%m-%d")
+        yesterday = (datetime.datetime.now(tz=tz) - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        week_ago = (datetime.datetime.now(tz=tz) - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+
+        with self._connect() as conn:
+            # Всего завершённых сессий
+            total_sessions = conn.execute(
+                "SELECT COUNT(*) FROM giveaway_sessions WHERE status='done'"
+            ).fetchone()[0]
+
+            # Вчерашние данные
+            yesterday_row = conn.execute("""
+                SELECT gs.sent_count, COUNT(gp.id) as participants
+                FROM giveaway_sessions gs
+                LEFT JOIN giveaway_participants gp ON gp.session_id = gs.id
+                WHERE gs.date = ?
+                GROUP BY gs.id
+            """, (yesterday,)).fetchone()
+
+            # Среднее участников за последние 7 дней
+            avg_row = conn.execute("""
+                SELECT AVG(cnt) FROM (
+                    SELECT COUNT(gp.id) as cnt
+                    FROM giveaway_sessions gs
+                    LEFT JOIN giveaway_participants gp ON gp.session_id = gs.id
+                    WHERE gs.date >= ? AND gs.status = 'done'
+                    GROUP BY gs.id
+                )
+            """, (week_ago,)).fetchone()
+            avg_7 = round(avg_row[0] or 0, 1)
+
+            # Всего подписчиков (для % вовлечённости)
+            total_subs = conn.execute(
+                "SELECT COUNT(*) FROM users WHERE subscribed = 1"
+            ).fetchone()[0]
+
+            # Всего побед
+            total_wins = conn.execute(
+                "SELECT COUNT(*) FROM giveaway_winners"
+            ).fetchone()[0]
+
+            # Уникальных победителей
+            unique_winners = conn.execute("""
+                SELECT COUNT(DISTINCT lower(username))
+                FROM giveaway_winners WHERE username != ''
+            """).fetchone()[0]
+
+            # Победивших несколько раз
+            multi_winners = conn.execute("""
+                SELECT COUNT(*) FROM (
+                    SELECT lower(username), COUNT(*) as wins
+                    FROM giveaway_winners WHERE username != ''
+                    GROUP BY lower(username) HAVING wins > 1
+                )
+            """).fetchone()[0]
+
+            # Топ-5 победителей
+            top_winners = conn.execute("""
+                SELECT username, COUNT(*) as wins
+                FROM giveaway_winners WHERE username != ''
+                GROUP BY lower(username)
+                ORDER BY wins DESC LIMIT 5
+            """).fetchall()
+
+            # Вовлечённость вчера (%)
+            engagement_yesterday = None
+            if yesterday_row and total_subs and yesterday_row[0]:
+                engagement_yesterday = round(yesterday_row[1] / yesterday_row[0] * 100, 1)
+
+            # Вовлечённость в среднем за 7 дней (%)
+            engagement_7 = round(avg_7 / total_subs * 100, 1) if total_subs and avg_7 else 0
+
+            return {
+                "total_sessions": total_sessions,
+                "total_subs": total_subs,
+                "yesterday_sent": yesterday_row[0] if yesterday_row else 0,
+                "yesterday_participants": yesterday_row[1] if yesterday_row else 0,
+                "engagement_yesterday": engagement_yesterday,
+                "avg_7_days": avg_7,
+                "engagement_7": engagement_7,
+                "total_wins": total_wins,
+                "unique_winners": unique_winners,
+                "multi_winners": multi_winners,
+                "top_winners": top_winners,
+            }
 
     def get_registration_with_user(self, reg_id: int) -> Optional[sqlite3.Row]:
         """Регистрация + telegram_id капитана для уведомления."""

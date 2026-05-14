@@ -5,7 +5,7 @@ def main_menu(is_admin: bool = False):
     keyboard = [
         [KeyboardButton(text="🎯 Ближайшие игры"), KeyboardButton(text="📝 Регистрация")],
         [KeyboardButton(text="📸 Фотографии с игр"), KeyboardButton(text="🗂 Мои регистрации")],
-        [KeyboardButton(text="📬 Получать анонсы"), KeyboardButton(text="❓ Задать вопрос")],
+        [KeyboardButton(text="📤 Поделиться ботом"), KeyboardButton(text="❓ Задать вопрос")],
     ]
     if is_admin:
         keyboard.append([KeyboardButton(text="⚙️ Панель администратора")])
@@ -19,7 +19,7 @@ def admin_menu():
             [KeyboardButton(text="📨 Рассылка"), KeyboardButton(text="📥 Заявки")],
             [KeyboardButton(text="📊 Экспорт в Excel"), KeyboardButton(text="👥 Подписчики")],
             [KeyboardButton(text="❌ Отменить игру"), KeyboardButton(text="📬 История рассылок")],
-            [KeyboardButton(text="🗓 Прошедшие игры"), KeyboardButton(text="📥 База подписчиков")],
+            [KeyboardButton(text="🗓 Прошедшие игры"), KeyboardButton(text="📋 Шаблоны рассылок")],
             [KeyboardButton(text="🎲 Рандомбой"), KeyboardButton(text="⚡️ Блиц-квиз")],
             [KeyboardButton(text="🎟 Проходка"), KeyboardButton(text="📸 Фото с игр")],
             [KeyboardButton(text="🏆 Победители Рандомбой")],
@@ -46,6 +46,7 @@ def broadcast_type_kb():
             [InlineKeyboardButton(text="⏰ Напоминание за день до игры", callback_data="broadcast_reminder")],
             [InlineKeyboardButton(text="📨 Напоминание в день игры", callback_data="broadcast_dayof")],
             [InlineKeyboardButton(text="✍️ Свой пост", callback_data="broadcast_custom")],
+            [InlineKeyboardButton(text="📋 Из шаблона", callback_data="broadcast_from_template")],
         ]
     )
 

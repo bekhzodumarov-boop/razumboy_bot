@@ -224,6 +224,27 @@ async def receive_question(message: Message, state: FSMContext, bot, admin_ids: 
     )
 
 
+@router.message(F.text == "📤 Поделиться ботом")
+async def share_bot(message: Message):
+    share_url = (
+        "https://t.me/share/url"
+        "?url=https%3A%2F%2Ft.me%2FRazumboy_Bot"
+        "&text=%F0%9F%A7%A0+%D0%A0%D0%B0%D0%B7%D1%83%D0%BC%D0%B1%D0%BE%D0%B9+%E2%80%94+"
+        "%D0%BA%D0%B2%D0%B8%D0%B7+%D0%B2+%D0%A2%D0%B0%D1%88%D0%BA%D0%B5%D0%BD%D1%82%D0%B5%21+"
+        "%D0%A0%D0%B5%D0%B3%D0%B8%D1%81%D1%82%D1%80%D0%B8%D1%80%D1%83%D0%B9%D1%81%D1%8F+%D0%BD%D0%B0+"
+        "%D0%B8%D0%B3%D1%80%D1%83+%D0%B8+%D1%83%D1%87%D0%B0%D1%81%D1%82%D0%B2%D1%83%D0%B9+%D0%B2+"
+        "%D0%B5%D0%B6%D0%B5%D0%B4%D0%BD%D0%B5%D0%B2%D0%BD%D0%BE%D0%BC+%D1%80%D0%BE%D0%B7%D1%8B%D0%B3%D1%80%D1%8B%D1%88%D0%B5%21"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📤 Поделиться с другом", url=share_url)
+    ]])
+    await message.answer(
+        "Расскажи друзьям о Разумбое! 🧠\n\n"
+        "Нажми кнопку ниже — и поделись ботом одним тапом 👇",
+        reply_markup=kb
+    )
+
+
 @router.message(F.text == "🏠 Главное меню")
 async def back_to_main(message: Message, db, admin_ids: list[int]):
     await message.answer("Главное меню:", reply_markup=main_menu(message.from_user.id in admin_ids))
@@ -261,6 +282,10 @@ async def fill_profile_callback(callback: CallbackQuery, state: FSMContext, db):
 @router.message(F.text == "📬 Получать анонсы")
 async def subscribe_start(message: Message, state: FSMContext, db):
     db.set_subscription(message.from_user.id, True)
+    profile = db.get_subscriber_profile(message.from_user.id)
+    if profile:
+        await message.answer("✅ Вы уже подписаны на анонсы Разумбоя! 🧠")
+        return
     await state.set_state(SubscribeState.first_name)
     await message.answer("Отлично! Давайте познакомимся 😊\n\nВведите ваше <b>имя</b>:")
 
@@ -268,46 +293,9 @@ async def subscribe_start(message: Message, state: FSMContext, db):
 @router.message(SubscribeState.first_name)
 async def subscribe_first_name(message: Message, state: FSMContext):
     await state.update_data(first_name=message.text.strip())
-    await state.set_state(SubscribeState.last_name)
-    await message.answer("Введите вашу <b>фамилию</b>:")
-
-
-@router.message(SubscribeState.last_name)
-async def subscribe_last_name(message: Message, state: FSMContext):
-    await state.update_data(last_name=message.text.strip())
-    await state.set_state(SubscribeState.gender)
-    gender_kb = ReplyKeyboardMarkup(
-        keyboard=[[KB(text="👨 Мужской"), KB(text="👩 Женский")]],
-        resize_keyboard=True, one_time_keyboard=True
-    )
-    await message.answer("Укажите ваш <b>пол</b>:", reply_markup=gender_kb)
-
-
-@router.message(SubscribeState.gender)
-async def subscribe_gender(message: Message, state: FSMContext):
-    gender = message.text.strip()
-    if gender not in ("👨 Мужской", "👩 Женский"):
-        gender_kb = ReplyKeyboardMarkup(
-            keyboard=[[KB(text="👨 Мужской"), KB(text="👩 Женский")]],
-            resize_keyboard=True, one_time_keyboard=True
-        )
-        await message.answer("Пожалуйста, выберите пол с помощью кнопок:", reply_markup=gender_kb)
-        return
-    await state.update_data(gender=gender)
-    await state.set_state(SubscribeState.age)
-    await message.answer("Сколько вам <b>лет</b>?")
-
-
-@router.message(SubscribeState.age)
-async def subscribe_age(message: Message, state: FSMContext):
-    age_text = message.text.strip()
-    if not age_text.isdigit() or not (5 <= int(age_text) <= 100):
-        await message.answer("Введите корректный возраст (число от 5 до 100):")
-        return
-    await state.update_data(age=age_text)
     await state.set_state(SubscribeState.phone)
     await message.answer(
-        "Введите ваш <b>номер телефона</b> в формате +998_________:\n"
+        "Введите ваш <b>номер телефона</b>:\n"
         "Пример: <b>+998901234567</b>"
     )
 
@@ -325,14 +313,14 @@ async def subscribe_phone(message: Message, state: FSMContext, db, admin_ids: li
     db.save_subscriber_profile(
         telegram_id=message.from_user.id,
         first_name=data["first_name"],
-        last_name=data["last_name"],
-        gender=data["gender"],
-        age=data["age"],
+        last_name=None,
+        gender=None,
+        age=None,
         phone=phone,
     )
     await state.clear()
     await message.answer(
-        "✅ <b>Спасибо за регистрацию в нашем боте!</b>\n\n"
-        "Вы будете получать анонсы и новости Разумбоя! 🧠",
+        "✅ <b>Готово! Добро пожаловать в клуб Разумбой!</b>\n\n"
+        "Вы будете получать анонсы игр и участвовать в розыгрышах! 🧠🎉",
         reply_markup=main_menu(message.from_user.id in admin_ids)
     )

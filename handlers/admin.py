@@ -987,19 +987,29 @@ async def show_giveaway_winners(callback: CallbackQuery, db, admin_ids: list[int
         if chunk:
             await callback.message.answer(header + "\n" + "\n".join(chunk))
 
-    # Кнопка «Отправить сообщение» — только для тех у кого есть Telegram ID
+    # Кнопка «Отправить сообщение» — показываем всегда
     eligible_count = sum(1 for w in winners if w["telegram_id"] > 0)
-    if eligible_count > 0:
-        send_kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text=f"📨 Отправить сообщение ({eligible_count} чел.)",
-                callback_data=f"winners_send_{period}"
-            )
-        ]])
-        await callback.message.answer(
-            f"Отправить сообщение победителям {label}?",
-            reply_markup=send_kb
+    btn_text = (
+        f"📨 Отправить сообщение ({eligible_count} из {len(winners)} чел.)"
+        if eligible_count < len(winners)
+        else f"📨 Отправить сообщение ({eligible_count} чел.)"
+    )
+    note = ""
+    if eligible_count == 0:
+        note = "\n\n⚠️ У всех победителей этого периода нет Telegram ID — рассылка недоступна. Это касается победителей, добавленных вручную."
+    elif eligible_count < len(winners):
+        note = f"\n\n⚠️ {len(winners) - eligible_count} победителей без Telegram ID будут пропущены."
+
+    send_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=btn_text,
+            callback_data=f"winners_send_{period}"
         )
+    ]])
+    await callback.message.answer(
+        f"Отправить сообщение победителям {label}?{note}",
+        reply_markup=send_kb
+    )
 
     await callback.answer()
 
@@ -1022,6 +1032,15 @@ async def winners_broadcast_start(callback: CallbackQuery, state: FSMContext, db
         label = f"за последние {period} дней"
 
     eligible = [w for w in winners if w["telegram_id"] > 0]
+
+    if not eligible:
+        await callback.message.answer(
+            f"⚠️ Ни у одного из победителей {label} нет Telegram ID.\n\n"
+            f"Рассылка доступна только победителям, которые участвовали через бота. "
+            f"Исторические победители, добавленные вручную, не получат сообщение."
+        )
+        await callback.answer()
+        return
 
     await state.set_state(AdminWinnersBroadcastState.message_text)
     await state.update_data(winners_period=period, eligible_count=len(eligible))

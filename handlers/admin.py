@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
-from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState
+from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState
 
 router = Router()
 
@@ -945,13 +945,13 @@ async def giveaway_winners_menu(message: Message, state: FSMContext, admin_ids: 
     await message.answer("🏆 <b>Победители Рандомбой</b>\n\nВыберите период:", reply_markup=kb)
 
 
-@router.callback_query(F.data.startswith("winners_"))
+@router.callback_query(F.data.startswith("winners_") & ~F.data.startswith("winners_send_") & ~F.data.startswith("winners_broadcast_"))
 async def show_giveaway_winners(callback: CallbackQuery, db, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
         return
 
-    period = callback.data.split("_")[1]  # "7", "30", "all"
+    period = callback.data.split("_")[1]  # "5", "30", "all"
 
     if period == "all":
         winners = db.get_giveaway_winners_since(days=36500)  # ~100 лет = все
@@ -970,7 +970,7 @@ async def show_giveaway_winners(callback: CallbackQuery, db, admin_ids: list[int
     for i, w in enumerate(winners, 1):
         mention = f"@{w['username']}" if w["username"] else w["full_name"] or f"id{w['telegram_id']}"
         won_date = w["won_at"][:10]  # YYYY-MM-DD
-        lines.append(f"{i}. {mention} — {won_date}")
+        lines.append(f"{i}. {mention} - {won_date}")
 
     # Разбиваем на части если список большой
     text = "\n".join(lines)
@@ -987,6 +987,117 @@ async def show_giveaway_winners(callback: CallbackQuery, db, admin_ids: list[int
         if chunk:
             await callback.message.answer(header + "\n" + "\n".join(chunk))
 
+    # Кнопка «Отправить сообщение» — только для тех у кого есть Telegram ID
+    eligible_count = sum(1 for w in winners if w["telegram_id"] > 0)
+    if eligible_count > 0:
+        send_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text=f"📨 Отправить сообщение ({eligible_count} чел.)",
+                callback_data=f"winners_send_{period}"
+            )
+        ]])
+        await callback.message.answer(
+            f"Отправить сообщение победителям {label}?",
+            reply_markup=send_kb
+        )
+
+    await callback.answer()
+
+
+# ── Рассылка победителям из списка ───────────────────────────
+
+@router.callback_query(F.data.startswith("winners_send_"))
+async def winners_broadcast_start(callback: CallbackQuery, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+
+    period = callback.data.split("winners_send_")[1]  # "5", "30", "all"
+
+    if period == "all":
+        winners = db.get_giveaway_winners_since(days=36500)
+        label = "за всё время"
+    else:
+        winners = db.get_giveaway_winners_since(days=int(period))
+        label = f"за последние {period} дней"
+
+    eligible = [w for w in winners if w["telegram_id"] > 0]
+
+    await state.set_state(AdminWinnersBroadcastState.message_text)
+    await state.update_data(winners_period=period, eligible_count=len(eligible))
+    await callback.message.answer(
+        f"✍️ Напишите сообщение для победителей {label}.\n\n"
+        f"Получателей: <b>{len(eligible)}</b> чел."
+    )
+    await callback.answer()
+
+
+@router.message(AdminWinnersBroadcastState.message_text, F.text)
+async def winners_broadcast_text(message: Message, state: FSMContext):
+    text = message.text.strip()
+    data = await state.get_data()
+    period = data["winners_period"]
+    eligible_count = data["eligible_count"]
+
+    await state.update_data(broadcast_text=text)
+
+    label = "за всё время" if period == "all" else f"за последние {period} дней"
+
+    confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"✅ Отправить {eligible_count} победителям",
+            callback_data="winners_broadcast_confirm"
+        )],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="winners_broadcast_cancel")],
+    ])
+    await message.answer(
+        f"📋 <b>Предпросмотр:</b>\n\n"
+        f"{text}\n\n"
+        f"──────────────────\n"
+        f"📤 Получатели: победители {label} — <b>{eligible_count}</b> чел.\n\n"
+        f"Отправляем?",
+        reply_markup=confirm_kb
+    )
+
+
+@router.callback_query(F.data == "winners_broadcast_confirm")
+async def winners_broadcast_confirm(callback: CallbackQuery, state: FSMContext, db, bot, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    period = data["winners_period"]
+    text = data["broadcast_text"]
+    await state.clear()
+
+    if period == "all":
+        winners = db.get_giveaway_winners_since(days=36500)
+    else:
+        winners = db.get_giveaway_winners_since(days=int(period))
+
+    eligible = [w for w in winners if w["telegram_id"] > 0]
+
+    sent = 0
+    for w in eligible:
+        try:
+            await bot.send_message(w["telegram_id"], text)
+            sent += 1
+        except Exception:
+            pass
+
+    await callback.message.answer(
+        f"✅ Рассылка завершена!\n\n"
+        f"📨 Отправлено: <b>{sent}</b> из <b>{len(eligible)}</b> победителей.",
+        reply_markup=admin_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "winners_broadcast_cancel")
+async def winners_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("❌ Рассылка отменена.", reply_markup=admin_menu())
     await callback.answer()
 
 

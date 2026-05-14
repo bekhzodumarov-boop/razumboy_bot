@@ -75,3 +75,7 @@ class AdminGiveawayState(StatesGroup):
 
 class WinnerConfirmState(StatesGroup):
     team_name = State()       # ожидаем название команды от победителя
+
+
+class AdminWinnersBroadcastState(StatesGroup):
+    message_text = State()    # текст рассылки победителям Рандомбой

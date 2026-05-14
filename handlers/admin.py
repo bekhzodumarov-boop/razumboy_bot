@@ -1926,6 +1926,102 @@ async def photo_delete(callback: CallbackQuery, db, admin_ids: list[int]):
     await callback.answer()
 
 
+# ── Авторассылки (APScheduler) ───────────────────────────────
+
+async def auto_remind_day_before(bot, db, admin_ids: list):
+    """Авторассылка за день до игры — в 10:00 всем подписчикам."""
+    import datetime
+    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    events = db.get_events_by_date_tomorrow(tomorrow)
+    if not events:
+        return
+
+    subscribers = db.get_subscribers()
+    for event in events:
+        location_line = event["location"]
+        if event["location_url"]:
+            location_line += f"\n📍 {event['location_url']}"
+
+        text = (
+            f"😎 Добрый день!\n\n"
+            f"Напоминаем, что завтра состоится <b>{event['title']}</b> - "
+            f"и вы ещё можете к нам присоединиться!\n\n"
+            f"📍 {location_line}\n"
+            f"⏰ {event['event_time']}\n"
+            f"💰 {event['price_text'] or 'уточняется'}\n\n"
+            f"📞 Дополнительные заявки принимаются до 16:00 завтрашнего дня.\n"
+            f"✍️ Регистрация: @Razumboy_Bot\n\n"
+            f"До встречи! 😄"
+        )
+        sent = 0
+        for user in subscribers:
+            try:
+                if event["photo_file_id"]:
+                    await bot.send_photo(user["telegram_id"], photo=event["photo_file_id"], caption=text[:1024])
+                else:
+                    await bot.send_message(user["telegram_id"], text)
+                sent += 1
+            except Exception:
+                pass
+
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"📅 <b>Авторассылка «за день до»</b> отправлена!\n"
+                    f"Игра: {event['title']}\n"
+                    f"Получили: {sent} из {len(subscribers)} подписчиков"
+                )
+            except Exception:
+                pass
+
+
+async def auto_remind_day_of(bot, db, admin_ids: list):
+    """Авторассылка в день игры — в 10:00 зарегистрированным командам."""
+    import datetime
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    events = db.get_events_by_date(today)
+    if not events:
+        return
+
+    for event in events:
+        registrations = db.get_registrations_for_event(event["id"])
+        if not registrations:
+            continue
+
+        location_line = event["location"]
+        if event["location_url"]:
+            location_line += f"\n🗺 {event['location_url']}"
+
+        sent = 0
+        for reg in registrations:
+            text = (
+                f"❤️ Добрый день!\n\n"
+                f"Напоминаем - сегодня вечером <b>{event['title']}</b>!\n\n"
+                f"Вы зарегистрировали <b>{reg['team_size']}</b> игроков. "
+                f"Пожалуйста, уточните у команды точное количество участников.\n\n"
+                f"📍 {location_line}\n"
+                f"⏰ {event['event_time']}\n\n"
+                f"Ждём вас! 💃"
+            )
+            try:
+                await bot.send_message(reg["telegram_id"], text)
+                sent += 1
+            except Exception:
+                pass
+
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"🎮 <b>Авторассылка «день игры»</b> отправлена!\n"
+                    f"Игра: {event['title']}\n"
+                    f"Получили: {sent} из {len(registrations)} команд"
+                )
+            except Exception:
+                pass
+
+
 # ── Шаблоны рассылок ─────────────────────────────────────────
 
 def _templates_kb(templates) -> InlineKeyboardMarkup:

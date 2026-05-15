@@ -2348,17 +2348,25 @@ async def ref_check_code_verify(message: Message, state: FSMContext, db, admin_i
     )
 
     if reward['status'] == 'active':
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="✅ Отметить как использованный",
-                callback_data=f"ref_use_{code}"
+        if reward['reward_type'] == 'free_pass':
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="✅ Активировать проходку", callback_data=f"ref_use_{code}")
+            ]])
+            await message.answer(text, reply_markup=kb)
+            await state.clear()
+        else:
+            # Скидка — спрашиваем сумму
+            discounts = {'discount_30': 30, 'discount_50': 50}
+            pct = discounts.get(reward['reward_type'], 0)
+            await state.set_state(AdminReferralCheckState.waiting_amount)
+            await state.update_data(reward_code=code, reward_type=reward['reward_type'],
+                                    owner=owner, owner_tid=reward['telegram_id'])
+            await message.answer(
+                f"{text}\n\n💰 Введите полную стоимость участия (в сумах):"
             )
-        ]])
-        await message.answer(text, reply_markup=kb)
     else:
         await message.answer(text, reply_markup=admin_menu())
-
-    await state.clear()
+        await state.clear()
 
 
 @router.callback_query(F.data.startswith("ref_use_"))
@@ -2478,3 +2486,53 @@ async def cmd_resetref(message: Message, db, admin_ids: list[int]):
         f"🗑 Удалено {deleted} тестовых рефералов.\n"
         f"Текущий реальный счёт: {stats['current_count']}/{stats['next_threshold']}"
     )
+
+
+# ── Расчёт скидки по сумме ────────────────────────────────────
+
+@router.message(AdminReferralCheckState.waiting_amount)
+async def ref_calc_discount(message: Message, state: FSMContext, db, bot, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+
+    raw = message.text.strip().replace(" ", "").replace(",", "").replace(".", "")
+    if not raw.isdigit():
+        await message.answer("❌ Введите сумму цифрами, например: 80000")
+        return
+
+    total = int(raw)
+    data = await state.get_data()
+    code = data["reward_code"]
+    reward_type = data["reward_type"]
+    owner = data["owner"]
+    owner_tid = data["owner_tid"]
+
+    discounts = {'discount_30': 30, 'discount_50': 50}
+    pct = discounts.get(reward_type, 0)
+    discount_amount = round(total * pct / 100)
+    to_pay = total - discount_amount
+
+    def fmt(n): return f"{n:,}".replace(",", " ")
+
+    db.mark_reward_used(code)
+    await state.clear()
+
+    await message.answer(
+        f"✅ <b>Скидка применена!</b>\n\n"
+        f"👤 Владелец: {owner}\n"
+        f"🎁 Скидка: {pct}%\n\n"
+        f"💵 Полная стоимость: <s>{fmt(total)} сум</s>\n"
+        f"💰 Скидка: -{fmt(discount_amount)} сум\n"
+        f"✅ <b>К оплате: {fmt(to_pay)} сум</b>",
+        reply_markup=admin_menu()
+    )
+
+    # Уведомляем владельца кода
+    try:
+        await bot.send_message(
+            owner_tid,
+            f"✅ Ваша скидка {pct}% активирована организатором!\n\n"
+            f"💰 Вы сэкономили {fmt(discount_amount)} сум. Наслаждайтесь игрой! 🎉"
+        )
+    except Exception:
+        pass

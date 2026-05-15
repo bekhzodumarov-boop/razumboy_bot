@@ -86,3 +86,4 @@ class AdminWinnersBroadcastState(StatesGroup):
 
 class AdminReferralCheckState(StatesGroup):
     waiting_code = State()    # ввод кода скидки для верификации
+    waiting_amount = State()  # ввод суммы для расчёта скидки

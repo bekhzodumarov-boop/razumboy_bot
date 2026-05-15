@@ -157,25 +157,39 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
                     reply_markup=main_menu(_is_admin)
                 )
             else:
-                db.mark_reward_used(code)
                 reward_labels = {'discount_30': 'Скидка 30%', 'discount_50': 'Скидка 50%', 'free_pass': 'Бесплатная проходка'}
                 label = reward_labels.get(reward["reward_type"], reward["reward_type"])
                 owner = f"@{reward['username']}" if reward['username'] else reward['full_name'] or f"id{reward['telegram_id']}"
-                await message.answer(
-                    f"✅ <b>Код активирован!</b>\n\n"
-                    f"🎁 Награда: <b>{label}</b>\n"
-                    f"👤 Владелец: {owner}\n\n"
-                    f"Код <code>{code}</code> отмечен как использованный.",
-                    reply_markup=main_menu(_is_admin)
-                )
-                # Уведомляем владельца кода
-                try:
-                    await message.bot.send_message(
-                        reward["telegram_id"],
-                        f"✅ Ваш бонус «{label}» был активирован организатором. Наслаждайтесь игрой! 🎉"
+                if reward["reward_type"] == "free_pass":
+                    # Проходка — сразу активируем без расчёта суммы
+                    db.mark_reward_used(code)
+                    await message.answer(
+                        f"✅ <b>Бесплатная проходка активирована!</b>\n\n"
+                        f"👤 Владелец: {owner}\n"
+                        f"🎟 Игрок проходит бесплатно.",
+                        reply_markup=main_menu(_is_admin)
                     )
-                except Exception:
-                    pass
+                    try:
+                        await message.bot.send_message(
+                            reward["telegram_id"],
+                            "✅ Ваша бесплатная проходка активирована организатором. Наслаждайтесь игрой! 🎉"
+                        )
+                    except Exception:
+                        pass
+                else:
+                    # Скидка — спрашиваем сумму для расчёта
+                    from states import AdminReferralCheckState
+                    await state.set_state(AdminReferralCheckState.waiting_amount)
+                    await state.update_data(reward_code=code, reward_type=reward["reward_type"],
+                                            owner=owner, owner_tid=reward["telegram_id"])
+                    discounts = {'discount_30': 30, 'discount_50': 50}
+                    pct = discounts[reward["reward_type"]]
+                    await message.answer(
+                        f"✅ Код действителен!\n\n"
+                        f"🎁 {label}\n"
+                        f"👤 Владелец: {owner}\n\n"
+                        f"💰 Введите полную стоимость участия (в сумах):"
+                    )
         else:
             await message.answer("Эта ссылка предназначена для сотрудников Разумбоя.", reply_markup=main_menu(_is_admin))
         return

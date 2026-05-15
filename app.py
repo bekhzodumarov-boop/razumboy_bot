@@ -74,6 +74,11 @@ async def main():
     logger.info("APScheduler запущен — проверка расписания розыгрыша каждую минуту")
 
     print("Бот Разумбой запущен...")
+    for admin_id in config.admin_ids:
+        try:
+            await bot.send_message(admin_id, "✅ Бот запущен и готов к работе!")
+        except Exception:
+            pass
     try:
         await dp.start_polling(bot)
     finally:

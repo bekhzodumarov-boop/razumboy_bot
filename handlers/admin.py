@@ -1,5 +1,6 @@
 import datetime
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
@@ -2388,3 +2389,87 @@ async def ref_leaderboard_all(callback: CallbackQuery, db, admin_ids: list[int])
         lines.append(f"{i}. {mention} — {row['count']} чел.")
     await callback.message.answer("\n".join(lines))
     await callback.answer()
+
+
+# ── Отладочные команды реферальной системы ────────────────────
+
+@router.message(Command("testref"))
+async def cmd_testref(message: Message, db, bot, admin_ids: list[int]):
+    """
+    /testref N — добавляет N фейковых квалифицированных рефералов (только для админа).
+    Фейковые пользователи имеют отрицательные ID и не влияют на реальных юзеров.
+    """
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        await message.answer("Использование: /testref 5\nДобавляет 5 тестовых рефералов.")
+        return
+
+    count = int(parts[1])
+    if count > 30:
+        await message.answer("Максимум 30 за раз.")
+        return
+
+    uid = message.from_user.id
+    import time
+
+    added = 0
+    rewards_issued = []
+    for i in range(count):
+        fake_id = -(int(time.time() * 1000) + i)  # уникальный отрицательный ID
+        recorded = db.record_referral(uid, fake_id)
+        if recorded:
+            # Сразу квалифицируем
+            with db._connect() as conn:
+                conn.execute(
+                    "UPDATE referrals SET qualified = 1, qualified_at = datetime('now') WHERE referred_telegram_id = ?",
+                    (fake_id,)
+                )
+                conn.commit()
+            added += 1
+
+        # Проверяем порог после каждого добавления
+        reward = db.check_and_issue_reward(uid)
+        if reward:
+            rewards_issued.append(reward)
+            from handlers.common import _send_reward_notification
+            await _send_reward_notification(bot, uid, reward)
+
+    stats = db.get_referral_stats(uid)
+    lines = [
+        f"🧪 <b>Тест рефералов</b>",
+        f"Добавлено: {added} фейковых рефералов",
+        f"Текущий счёт: {stats['current_count']}/{stats['next_threshold']} → {stats['next_label']}",
+        f"Всего квалифицированных: {stats['total_qualified']}",
+    ]
+    if rewards_issued:
+        lines.append(f"\n🎉 Выдано наград: {len(rewards_issued)}")
+        for r in rewards_issued:
+            lines.append(f"  • {r['reward_label']}: <code>{r['code']}</code>")
+    else:
+        lines.append("\nНаград пока не выдано — порог не достигнут.")
+
+    lines.append("\n<i>Для сброса тестовых данных: /resetref</i>")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("resetref"))
+async def cmd_resetref(message: Message, db, admin_ids: list[int]):
+    """Удаляет все тестовые (фейковые) рефералы — только для отладки."""
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+
+    with db._connect() as conn:
+        deleted = conn.execute(
+            "DELETE FROM referrals WHERE referred_telegram_id < 0"
+        ).rowcount
+        conn.commit()
+
+    # Пересчитываем stats после сброса
+    stats = db.get_referral_stats(message.from_user.id)
+    await message.answer(
+        f"🗑 Удалено {deleted} тестовых рефералов.\n"
+        f"Текущий реальный счёт: {stats['current_count']}/{stats['next_threshold']}"
+    )

@@ -69,7 +69,7 @@ DAYS_RU = {
 def format_date_ru(date_str: str) -> str:
     try:
         dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-        return f"{dt.day} {MONTHS_RU[dt.month]} {dt.year} г., {DAYS_RU[dt.weekday()]}"
+        return f"{dt.day} {MONTHS_RU[dt.month]} {dt.year} г. ({DAYS_RU[dt.weekday()]})"
     except Exception:
         return date_str
 

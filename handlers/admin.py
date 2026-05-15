@@ -9,6 +9,11 @@ from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventSta
 router = Router()
 
 DAYS_RU = {
+    0: "понедельник", 1: "вторник", 2: "среда",
+    3: "четверг", 4: "пятница", 5: "суббота", 6: "воскресенье"
+}
+# Предложный падеж для конструкции «завтра (в ...)»
+DAYS_RU_PREP = {
     0: "понедельник", 1: "вторник", 2: "среду",
     3: "четверг", 4: "пятницу", 5: "субботу", 6: "воскресенье"
 }
@@ -25,12 +30,12 @@ def is_admin(user_id: int, admin_ids: list[int]) -> bool:
 
 
 def format_date_ru(date_str: str) -> str:
-    """Преобразует 2026-04-10 → 10 апреля 2026 г., пятницу"""
+    """Преобразует 2026-04-10 → 10 апреля 2026 г. (пятница)"""
     try:
         dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
         day_name = DAYS_RU[dt.weekday()]
         month_name = MONTHS_RU[dt.month]
-        return f"{dt.day} {month_name} {dt.year} г., {day_name}"
+        return f"{dt.day} {month_name} {dt.year} г. ({day_name})"
     except Exception:
         return date_str
 
@@ -497,7 +502,7 @@ async def broadcast_send_reminder(callback: CallbackQuery, state: FSMContext, db
 
     try:
         event_dt = datetime.datetime.strptime(event["event_date"], "%Y-%m-%d")
-        day_name = DAYS_RU[event_dt.weekday()]
+        day_name = DAYS_RU_PREP[event_dt.weekday()]
     except Exception:
         day_name = event["event_date"]
 

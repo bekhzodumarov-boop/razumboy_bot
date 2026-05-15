@@ -9,6 +9,30 @@ from keyboards.inline import upcoming_event_kb
 
 router = Router()
 
+
+async def _send_reward_notification(bot, telegram_id: int, reward: dict):
+    """Отправляет пользователю уведомление о полученной награде с кодом."""
+    reward_icons = {
+        'discount_30': '🎉',
+        'discount_50': '🔥',
+        'free_pass':   '🏆',
+    }
+    icon = reward_icons.get(reward['reward_type'], '🎁')
+    text = (
+        f"{icon} <b>Поздравляем! Вы получили награду!</b>\n\n"
+        f"🎁 Награда: <b>{reward['reward_label']}</b>\n\n"
+        f"🔑 Ваш код:\n"
+        f"<code>{reward['code']}</code>\n\n"
+        f"📋 <b>Как использовать:</b>\n"
+        f"Покажите этот код организатору при оплате следующей игры.\n\n"
+        f"⚠️ Код одноразовый. Сохраните его — он также доступен в разделе «🎁 Рефералы»."
+    )
+    try:
+        await bot.send_message(telegram_id, text)
+    except Exception:
+        pass
+
+
 MONTHS_RU = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
     5: "мая", 6: "июня", 7: "июля", 8: "августа",
@@ -83,6 +107,10 @@ async def cmd_cancel(message: Message, state: FSMContext, admin_ids: list[int]):
 @router.message(Command("start"))
 async def cmd_start(message: Message, db, admin_ids: list[int]):
     user = message.from_user
+
+    # Проверяем: новый пользователь? (до upsert_user)
+    is_new_user = db.get_user_by_telegram_id(user.id) is None
+
     db.upsert_user(
         telegram_id=user.id,
         username=user.username,
@@ -93,8 +121,17 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
     db.set_subscription(user.id, True)
     _is_admin = user.id in admin_ids
 
-    # Deep link: /start event_42 — показать конкретную игру
+    # Deep link: /start ref<telegram_id> — реферальная ссылка
     parts = message.text.split() if message.text else []
+    if len(parts) > 1 and parts[1].startswith("ref") and is_new_user:
+        try:
+            referrer_id = int(parts[1][3:])
+            if referrer_id != user.id:
+                db.record_referral(referrer_id, user.id)
+        except (ValueError, IndexError):
+            pass
+
+    # Deep link: /start event_42 — показать конкретную игру
     if len(parts) > 1 and parts[1].startswith("event_"):
         try:
             event_id = int(parts[1].split("_")[1])
@@ -301,7 +338,7 @@ async def subscribe_first_name(message: Message, state: FSMContext):
 
 
 @router.message(SubscribeState.phone)
-async def subscribe_phone(message: Message, state: FSMContext, db, admin_ids: list[int]):
+async def subscribe_phone(message: Message, state: FSMContext, db, bot, admin_ids: list[int]):
     import re
     phone = message.text.strip().replace(" ", "").replace("-", "")
     if not re.match(r"^\+998\d{9}$", phone):
@@ -324,3 +361,24 @@ async def subscribe_phone(message: Message, state: FSMContext, db, admin_ids: li
         "Вы будете получать анонсы игр и участвовать в розыгрышах! 🧠🎉",
         reply_markup=main_menu(message.from_user.id in admin_ids)
     )
+
+    # Квалифицируем реферала и проверяем пороги
+    referrer_id = db.qualify_referral(message.from_user.id)
+    if referrer_id:
+        stats = db.get_referral_stats(referrer_id)
+        current = stats["current_count"]
+        next_t = stats["next_threshold"]
+        next_label = stats["next_label"]
+        # Уведомляем реферера о новом приглашённом
+        try:
+            await bot.send_message(
+                referrer_id,
+                f"🎉 По вашей реферальной ссылке зарегистрировался новый участник!\n\n"
+                f"📊 Ваш счёт: <b>{current}</b> из <b>{next_t}</b> до «{next_label}»"
+            )
+        except Exception:
+            pass
+        # Проверяем достижение порога → выдаём награду
+        reward = db.check_and_issue_reward(referrer_id)
+        if reward:
+            await _send_reward_notification(bot, referrer_id, reward)

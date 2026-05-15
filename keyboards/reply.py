@@ -5,7 +5,8 @@ def main_menu(is_admin: bool = False):
     keyboard = [
         [KeyboardButton(text="🎯 Ближайшие игры"), KeyboardButton(text="📝 Регистрация")],
         [KeyboardButton(text="📸 Фотографии с игр"), KeyboardButton(text="🗂 Мои регистрации")],
-        [KeyboardButton(text="📤 Поделиться ботом"), KeyboardButton(text="❓ Задать вопрос")],
+        [KeyboardButton(text="🎁 Рефералы"), KeyboardButton(text="❓ Задать вопрос")],
+        [KeyboardButton(text="📤 Поделиться ботом")],
     ]
     if is_admin:
         keyboard.append([KeyboardButton(text="⚙️ Панель администратора")])
@@ -23,7 +24,7 @@ def admin_menu():
             [KeyboardButton(text="🎲 Рандомбой"), KeyboardButton(text="⚡️ Блиц-квиз")],
             [KeyboardButton(text="🎟 Проходка"), KeyboardButton(text="📸 Фото с игр")],
             [KeyboardButton(text="🏆 Победители Рандомбой")],
-            [KeyboardButton(text="🏠 Главное меню")],
+            [KeyboardButton(text="🔗 Рефералы (панель)"), KeyboardButton(text="🏠 Главное меню")],
         ],
         resize_keyboard=True,
     )

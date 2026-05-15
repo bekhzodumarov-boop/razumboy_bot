@@ -2,8 +2,70 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from states import ConfirmPlayersState, WinnerConfirmState
+from database import REFERRAL_THRESHOLDS
 
 router = Router()
+
+
+# ── Реферальная система ───────────────────────────────────────
+
+@router.message(F.text == "🎁 Рефералы")
+async def referral_panel(message: Message, db):
+    uid = message.from_user.id
+    stats = db.get_referral_stats(uid)
+    active_rewards = db.get_active_rewards(uid)
+
+    # Реферальная ссылка
+    ref_link = f"https://t.me/Razumboy_Bot?start=ref{uid}"
+
+    # Прогресс к следующей награде
+    current = stats["current_count"]
+    next_t = stats["next_threshold"]
+    next_label = stats["next_label"]
+    progress_bar = _progress_bar(current, next_t)
+
+    lines = [
+        "🎁 <b>Реферальная программа Разумбой</b>\n",
+        f"🔗 Ваша ссылка:",
+        f"<code>{ref_link}</code>\n",
+        f"📊 <b>Прогресс:</b> {current}/{next_t} — {next_label}",
+        progress_bar,
+    ]
+
+    # Все уровни наград
+    lines.append("\n🏅 <b>Уровни наград (в рамках одного цикла):</b>")
+    for threshold, rtype, label in REFERRAL_THRESHOLDS:
+        lines.append(f"  • {threshold} чел. → {label}")
+    lines.append("  ℹ️ После получения награды счётчик обнуляется")
+
+    # Активные коды
+    if active_rewards:
+        lines.append(f"\n🎟 <b>Ваши активные коды ({len(active_rewards)}):</b>")
+        for r in active_rewards:
+            issued = r["issued_at"][:10]
+            lines.append(f"  🔑 <code>{r['reward_code']}</code> — {_reward_label(r['reward_type'])} (выдан {issued})")
+        lines.append("\nПокажите код организатору при оплате.")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=f"Присоединяйся к Разумбою! {ref_link}")
+    ]])
+
+    await message.answer("\n".join(lines), reply_markup=kb)
+
+
+def _progress_bar(current: int, total: int) -> str:
+    filled = min(current, total)
+    bar = "▓" * filled + "░" * (total - filled)
+    return f"[{bar}] {current}/{total}"
+
+
+def _reward_label(reward_type: str) -> str:
+    labels = {
+        'discount_30': 'Скидка 30%',
+        'discount_50': 'Скидка 50%',
+        'free_pass':   'Бесплатная проходка',
+    }
+    return labels.get(reward_type, reward_type)
 
 
 # ── Мои регистрации ───────────────────────────────────────────

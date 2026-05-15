@@ -82,3 +82,7 @@ class WinnerConfirmState(StatesGroup):
 
 class AdminWinnersBroadcastState(StatesGroup):
     message_text = State()    # текст рассылки победителям Рандомбой
+
+
+class AdminReferralCheckState(StatesGroup):
+    waiting_code = State()    # ввод кода скидки для верификации

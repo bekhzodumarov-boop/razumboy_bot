@@ -1,6 +1,16 @@
 import os
 import sqlite3
+import random
+import string
+import datetime
 from typing import Optional
+
+# Пороги реферальной системы: (кол-во приглашённых, тип награды, читаемое название)
+REFERRAL_THRESHOLDS = [
+    (5,  'discount_30', 'Скидка 30% на игру'),
+    (10, 'discount_50', 'Скидка 50% на игру'),
+    (15, 'free_pass',   'Бесплатная проходка'),
+]
 
 
 class Database:
@@ -76,6 +86,31 @@ class Database:
                 sent_count INTEGER NOT NULL DEFAULT 0,
                 sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (event_id) REFERENCES events(id)
+            )
+            """)
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS referrals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                referrer_telegram_id INTEGER NOT NULL,
+                referred_telegram_id INTEGER NOT NULL UNIQUE,
+                qualified INTEGER NOT NULL DEFAULT 0,
+                joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                qualified_at TEXT
+            )
+            """)
+
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS referral_rewards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                reward_type TEXT NOT NULL,
+                reward_code TEXT NOT NULL UNIQUE,
+                reward_month TEXT NOT NULL,
+                referrals_credited INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                issued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                used_at TEXT
             )
             """)
 
@@ -1237,3 +1272,189 @@ class Database:
                 WHERE r.id = ?
             """, (reg_id,))
             return cur.fetchone()
+
+    # ── Реферальная система ───────────────────────────────────────
+
+    def record_referral(self, referrer_telegram_id: int, referred_telegram_id: int) -> bool:
+        """Записывает реферала (неквалифицированного). Возвращает True если записан."""
+        if referrer_telegram_id == referred_telegram_id:
+            return False
+        try:
+            with self._connect() as conn:
+                conn.execute("""
+                    INSERT OR IGNORE INTO referrals (referrer_telegram_id, referred_telegram_id)
+                    VALUES (?, ?)
+                """, (referrer_telegram_id, referred_telegram_id))
+                conn.commit()
+                return conn.execute(
+                    "SELECT changes()"
+                ).fetchone()[0] > 0
+        except Exception:
+            return False
+
+    def qualify_referral(self, referred_telegram_id: int) -> Optional[int]:
+        """Квалифицирует реферала (заполнил анкету). Возвращает referrer_telegram_id или None."""
+        with self._connect() as conn:
+            row = conn.execute("""
+                SELECT referrer_telegram_id FROM referrals
+                WHERE referred_telegram_id = ? AND qualified = 0
+            """, (referred_telegram_id,)).fetchone()
+            if not row:
+                return None
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute("""
+                UPDATE referrals SET qualified = 1, qualified_at = ?
+                WHERE referred_telegram_id = ?
+            """, (now, referred_telegram_id))
+            conn.commit()
+            return row[0]
+
+    def get_referral_stats(self, telegram_id: int) -> dict:
+        """Статистика рефералов пользователя."""
+        with self._connect() as conn:
+            total_qualified = conn.execute(
+                "SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ? AND qualified = 1",
+                (telegram_id,)
+            ).fetchone()[0]
+
+            total_credits = conn.execute(
+                "SELECT COALESCE(SUM(referrals_credited), 0) FROM referral_rewards WHERE telegram_id = ?",
+                (telegram_id,)
+            ).fetchone()[0]
+
+            rewards_issued = conn.execute(
+                "SELECT COUNT(*) FROM referral_rewards WHERE telegram_id = ?",
+                (telegram_id,)
+            ).fetchone()[0]
+
+            current_count = total_qualified - total_credits
+            cycle_pos = rewards_issued % len(REFERRAL_THRESHOLDS)
+            next_threshold, next_type, next_label = REFERRAL_THRESHOLDS[cycle_pos]
+
+            return {
+                "total_qualified": total_qualified,
+                "current_count": current_count,
+                "rewards_issued": rewards_issued,
+                "next_threshold": next_threshold,
+                "next_type": next_type,
+                "next_label": next_label,
+            }
+
+    def check_and_issue_reward(self, telegram_id: int) -> Optional[dict]:
+        """Проверяет порог и выдаёт награду. Возвращает dict с кодом или None."""
+        with self._connect() as conn:
+            total_qualified = conn.execute(
+                "SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ? AND qualified = 1",
+                (telegram_id,)
+            ).fetchone()[0]
+
+            total_credits = conn.execute(
+                "SELECT COALESCE(SUM(referrals_credited), 0) FROM referral_rewards WHERE telegram_id = ?",
+                (telegram_id,)
+            ).fetchone()[0]
+
+            rewards_issued = conn.execute(
+                "SELECT COUNT(*) FROM referral_rewards WHERE telegram_id = ?",
+                (telegram_id,)
+            ).fetchone()[0]
+
+            current_count = total_qualified - total_credits
+            cycle_pos = rewards_issued % len(REFERRAL_THRESHOLDS)
+            threshold, reward_type, reward_label = REFERRAL_THRESHOLDS[cycle_pos]
+
+            if current_count < threshold:
+                return None
+
+            # Проверяем месячный лимит
+            current_month = datetime.date.today().strftime("%Y-%m")
+            already_this_month = conn.execute(
+                "SELECT COUNT(*) FROM referral_rewards WHERE telegram_id = ? AND reward_type = ? AND reward_month = ?",
+                (telegram_id, reward_type, current_month)
+            ).fetchone()[0]
+            if already_this_month > 0:
+                return None
+
+            # Генерируем уникальный код
+            for _ in range(10):
+                code = "RAZUM-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                exists = conn.execute(
+                    "SELECT 1 FROM referral_rewards WHERE reward_code = ?", (code,)
+                ).fetchone()
+                if not exists:
+                    break
+
+            conn.execute("""
+                INSERT INTO referral_rewards
+                    (telegram_id, reward_type, reward_code, reward_month, referrals_credited)
+                VALUES (?, ?, ?, ?, ?)
+            """, (telegram_id, reward_type, code, current_month, threshold))
+            conn.commit()
+
+            return {
+                "code": code,
+                "reward_type": reward_type,
+                "reward_label": reward_label,
+                "threshold": threshold,
+            }
+
+    def get_active_rewards(self, telegram_id: int) -> list:
+        """Активные (неиспользованные) коды наград пользователя."""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT * FROM referral_rewards
+                WHERE telegram_id = ? AND status = 'active'
+                ORDER BY issued_at DESC
+            """, (telegram_id,))
+            return cur.fetchall()
+
+    def get_reward_by_code(self, code: str) -> Optional[sqlite3.Row]:
+        """Найти награду по коду (для верификации)."""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT rr.*, u.username, u.full_name
+                FROM referral_rewards rr
+                LEFT JOIN users u ON rr.telegram_id = u.telegram_id
+                WHERE rr.reward_code = ?
+            """, (code.upper().strip(),))
+            return cur.fetchone()
+
+    def mark_reward_used(self, code: str) -> bool:
+        """Пометить код как использованный (администратором)."""
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE referral_rewards SET status = 'used', used_at = ?
+                WHERE reward_code = ? AND status = 'active'
+            """, (now, code.upper().strip()))
+            conn.commit()
+            return conn.execute("SELECT changes()").fetchone()[0] > 0
+
+    def get_referral_leaderboard(self, month: str = None) -> list:
+        """Топ рефереров за месяц (YYYY-MM) или за всё время."""
+        with self._connect() as conn:
+            if month:
+                cur = conn.execute("""
+                    SELECT r.referrer_telegram_id as telegram_id,
+                           u.username, u.full_name,
+                           COUNT(*) as count
+                    FROM referrals r
+                    LEFT JOIN users u ON r.referrer_telegram_id = u.telegram_id
+                    WHERE r.qualified = 1
+                      AND strftime('%Y-%m', r.qualified_at) = ?
+                    GROUP BY r.referrer_telegram_id
+                    ORDER BY count DESC
+                    LIMIT 10
+                """, (month,))
+            else:
+                cur = conn.execute("""
+                    SELECT r.referrer_telegram_id as telegram_id,
+                           u.username, u.full_name,
+                           COUNT(*) as count
+                    FROM referrals r
+                    LEFT JOIN users u ON r.referrer_telegram_id = u.telegram_id
+                    WHERE r.qualified = 1
+                    GROUP BY r.referrer_telegram_id
+                    ORDER BY count DESC
+                    LIMIT 10
+                """)
+            return cur.fetchall()

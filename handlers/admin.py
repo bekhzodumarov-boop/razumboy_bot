@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
-from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState
+from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState, AdminReferralCheckState
 
 router = Router()
 
@@ -2267,3 +2267,124 @@ async def blitz_catch_answer(message: Message, bot, db, admin_ids: list[int]):
                     await bot.send_message(sub["telegram_id"], result_text)
                 except Exception:
                     pass
+
+
+# ── Реферальная система (панель администратора) ───────────────
+
+@router.message(F.text == "🔗 Рефералы (панель)")
+async def referral_admin_panel(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    await state.clear()
+
+    import datetime as dt
+    current_month = dt.date.today().strftime("%Y-%m")
+    leaderboard = db.get_referral_leaderboard(month=current_month)
+
+    lines = [f"🔗 <b>Рефералы — {current_month}</b>\n"]
+
+    if leaderboard:
+        lines.append("🏆 <b>Топ рефереров этого месяца:</b>")
+        for i, row in enumerate(leaderboard, 1):
+            mention = f"@{row['username']}" if row['username'] else row['full_name'] or f"id{row['telegram_id']}"
+            lines.append(f"{i}. {mention} — {row['count']} чел.")
+    else:
+        lines.append("Рефералов в этом месяце пока нет.")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑 Проверить код скидки", callback_data="ref_check_code")],
+        [InlineKeyboardButton(text="📊 Топ за всё время", callback_data="ref_leaderboard_all")],
+    ])
+    await message.answer("\n".join(lines), reply_markup=kb)
+
+
+@router.callback_query(F.data == "ref_check_code")
+async def ref_check_code_start(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.set_state(AdminReferralCheckState.waiting_code)
+    await callback.message.answer("🔑 Введите код скидки (например: RAZUM-AB3X9K):")
+    await callback.answer()
+
+
+@router.message(AdminReferralCheckState.waiting_code)
+async def ref_check_code_verify(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    code = message.text.strip().upper()
+    reward = db.get_reward_by_code(code)
+
+    if not reward:
+        await message.answer(
+            f"❌ Код <code>{code}</code> не найден.\n\nПроверьте правильность ввода.",
+            reply_markup=admin_menu()
+        )
+        await state.clear()
+        return
+
+    reward_labels = {
+        'discount_30': '🎉 Скидка 30%',
+        'discount_50': '🔥 Скидка 50%',
+        'free_pass':   '🏆 Бесплатная проходка',
+    }
+    label = reward_labels.get(reward['reward_type'], reward['reward_type'])
+    owner = f"@{reward['username']}" if reward['username'] else reward['full_name'] or f"id{reward['telegram_id']}"
+    issued = reward['issued_at'][:16].replace('T', ' ')
+    status_icon = "✅ Активен" if reward['status'] == 'active' else f"❌ Использован ({reward['used_at'][:10] if reward['used_at'] else ''})"
+
+    text = (
+        f"🔑 <b>Код: <code>{code}</code></b>\n\n"
+        f"🎁 Награда: {label}\n"
+        f"👤 Владелец: {owner}\n"
+        f"📅 Выдан: {issued}\n"
+        f"📌 Статус: {status_icon}"
+    )
+
+    if reward['status'] == 'active':
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="✅ Отметить как использованный",
+                callback_data=f"ref_use_{code}"
+            )
+        ]])
+        await message.answer(text, reply_markup=kb)
+    else:
+        await message.answer(text, reply_markup=admin_menu())
+
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("ref_use_"))
+async def ref_mark_used(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    code = callback.data.split("ref_use_")[1]
+    success = db.mark_reward_used(code)
+    if success:
+        await callback.message.answer(
+            f"✅ Код <code>{code}</code> отмечен как использованный.",
+            reply_markup=admin_menu()
+        )
+    else:
+        await callback.message.answer("⚠️ Код уже был использован или не найден.", reply_markup=admin_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "ref_leaderboard_all")
+async def ref_leaderboard_all(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    leaderboard = db.get_referral_leaderboard(month=None)
+    if not leaderboard:
+        await callback.message.answer("Рефералов пока нет.")
+        await callback.answer()
+        return
+    lines = ["🏆 <b>Топ рефереров за всё время:</b>\n"]
+    for i, row in enumerate(leaderboard, 1):
+        mention = f"@{row['username']}" if row['username'] else row['full_name'] or f"id{row['telegram_id']}"
+        lines.append(f"{i}. {mention} — {row['count']} чел.")
+    await callback.message.answer("\n".join(lines))
+    await callback.answer()

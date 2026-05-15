@@ -2355,14 +2355,12 @@ async def ref_check_code_verify(message: Message, state: FSMContext, db, admin_i
             await message.answer(text, reply_markup=kb)
             await state.clear()
         else:
-            # Скидка — спрашиваем сумму
-            discounts = {'discount_30': 30, 'discount_50': 50}
-            pct = discounts.get(reward['reward_type'], 0)
-            await state.set_state(AdminReferralCheckState.waiting_amount)
-            await state.update_data(reward_code=code, reward_type=reward['reward_type'],
-                                    owner=owner, owner_tid=reward['telegram_id'])
-            await message.answer(
-                f"{text}\n\n💰 Введите полную стоимость участия (в сумах):"
+            # Скидка — показываем игры с ценами
+            await message.answer(text)
+            await _ask_event_for_discount(
+                message, db, state,
+                reward_code=code, reward_type=reward['reward_type'],
+                owner=owner, owner_tid=reward['telegram_id']
             )
     else:
         await message.answer(text, reply_markup=admin_menu())
@@ -2488,32 +2486,126 @@ async def cmd_resetref(message: Message, db, admin_ids: list[int]):
     )
 
 
-# ── Расчёт скидки по сумме ────────────────────────────────────
+# ── Расчёт скидки через выбор игры ───────────────────────────
 
-@router.message(AdminReferralCheckState.waiting_amount)
-async def ref_calc_discount(message: Message, state: FSMContext, db, bot, admin_ids: list[int]):
-    if not is_admin(message.from_user.id, admin_ids):
+def _parse_price(price_text: str):
+    """Извлекает число из текста цены: '80 000 сум' → 80000. None если не удалось."""
+    import re
+    if not price_text:
+        return None
+    cleaned = re.sub(r'(\d)[\s,](\d)', r'\1\2', price_text)
+    cleaned = re.sub(r'(\d)[\s,](\d)', r'\1\2', cleaned)  # дважды для «80 000 000»
+    match = re.search(r'\d+', cleaned)
+    return int(match.group()) if match else None
+
+
+def _fmt(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
+
+
+async def _ask_event_for_discount(target, db, state, reward_code, reward_type, owner, owner_tid):
+    """Показывает список ближайших игр с ценами для выбора."""
+    events = db.get_open_events()
+    discounts = {'discount_30': 30, 'discount_50': 50}
+    pct = discounts.get(reward_type, 0)
+
+    send = target.answer if hasattr(target, 'answer') else target.message.answer
+
+    if not events:
+        await send(
+            "⚠️ Нет активных игр. Введите сумму вручную (цифрами, в сумах):"
+        )
+        await state.set_state(AdminReferralCheckState.waiting_event)
+        await state.update_data(reward_code=reward_code, reward_type=reward_type,
+                                owner=owner, owner_tid=owner_tid, manual=True)
         return
 
-    raw = message.text.strip().replace(" ", "").replace(",", "").replace(".", "")
-    if not raw.isdigit():
-        await message.answer("❌ Введите сумму цифрами, например: 80000")
+    buttons = []
+    for e in events:
+        price = _parse_price(e["price_text"])
+        if price:
+            discount_amount = round(price * pct / 100)
+            to_pay = price - discount_amount
+            btn_text = f"🎯 {e['title']} — {_fmt(to_pay)} сум (было {_fmt(price)})"
+        else:
+            btn_text = f"🎯 {e['title']} — цена не указана"
+        buttons.append([InlineKeyboardButton(
+            text=btn_text,
+            callback_data=f"ref_event_{e['id']}"
+        )])
+
+    buttons.append([InlineKeyboardButton(text="✏️ Ввести сумму вручную", callback_data="ref_event_manual")])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await state.set_state(AdminReferralCheckState.waiting_event)
+    await state.update_data(reward_code=reward_code, reward_type=reward_type,
+                            owner=owner, owner_tid=owner_tid, manual=False)
+    await send(f"🎯 Выберите игру для применения скидки {pct}%:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("ref_event_"), AdminReferralCheckState.waiting_event)
+async def ref_apply_discount_event(callback: CallbackQuery, state: FSMContext, db, bot, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
         return
 
-    total = int(raw)
     data = await state.get_data()
     code = data["reward_code"]
     reward_type = data["reward_type"]
     owner = data["owner"]
     owner_tid = data["owner_tid"]
-
     discounts = {'discount_30': 30, 'discount_50': 50}
-    pct = discounts.get(reward_type, 0)
+    pct = discounts[reward_type]
+
+    if callback.data == "ref_event_manual":
+        await callback.message.answer("✏️ Введите полную стоимость участия (в сумах):")
+        await state.update_data(manual=True)
+        await callback.answer()
+        return
+
+    event_id = int(callback.data.split("ref_event_")[1])
+    event = db.get_event_by_id(event_id)
+    price = _parse_price(event["price_text"]) if event else None
+
+    if not price:
+        await callback.message.answer("⚠️ Цена этой игры не задана числом. Введите сумму вручную (в сумах):")
+        await state.update_data(manual=True)
+        await callback.answer()
+        return
+
+    await _finalize_discount(callback.message, db, bot, state, code, reward_type,
+                             pct, price, owner, owner_tid)
+    await callback.answer()
+
+
+@router.message(AdminReferralCheckState.waiting_event)
+async def ref_manual_amount(message: Message, state: FSMContext, db, bot, admin_ids: list[int]):
+    """Хендлер ручного ввода суммы (fallback)."""
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    data = await state.get_data()
+    if not data.get("manual"):
+        return
+
+    raw = message.text.strip().replace(" ", "").replace(",", "")
+    if not raw.isdigit():
+        await message.answer("❌ Введите сумму цифрами, например: 80000")
+        return
+
+    code = data["reward_code"]
+    reward_type = data["reward_type"]
+    owner = data["owner"]
+    owner_tid = data["owner_tid"]
+    discounts = {'discount_30': 30, 'discount_50': 50}
+    pct = discounts[reward_type]
+
+    await _finalize_discount(message, db, bot, state, code, reward_type,
+                             pct, int(raw), owner, owner_tid)
+
+
+async def _finalize_discount(message, db, bot, state, code, reward_type, pct, total, owner, owner_tid):
     discount_amount = round(total * pct / 100)
     to_pay = total - discount_amount
-
-    def fmt(n): return f"{n:,}".replace(",", " ")
-
     db.mark_reward_used(code)
     await state.clear()
 
@@ -2521,18 +2613,16 @@ async def ref_calc_discount(message: Message, state: FSMContext, db, bot, admin_
         f"✅ <b>Скидка применена!</b>\n\n"
         f"👤 Владелец: {owner}\n"
         f"🎁 Скидка: {pct}%\n\n"
-        f"💵 Полная стоимость: <s>{fmt(total)} сум</s>\n"
-        f"💰 Скидка: -{fmt(discount_amount)} сум\n"
-        f"✅ <b>К оплате: {fmt(to_pay)} сум</b>",
+        f"💵 Полная стоимость: <s>{_fmt(total)} сум</s>\n"
+        f"💰 Скидка: -{_fmt(discount_amount)} сум\n"
+        f"✅ <b>К оплате: {_fmt(to_pay)} сум</b>",
         reply_markup=admin_menu()
     )
-
-    # Уведомляем владельца кода
     try:
         await bot.send_message(
             owner_tid,
-            f"✅ Ваша скидка {pct}% активирована организатором!\n\n"
-            f"💰 Вы сэкономили {fmt(discount_amount)} сум. Наслаждайтесь игрой! 🎉"
+            f"✅ Ваша скидка {pct}% активирована!\n\n"
+            f"💰 Вы сэкономили {_fmt(discount_amount)} сум. Наслаждайтесь игрой! 🎉"
         )
     except Exception:
         pass

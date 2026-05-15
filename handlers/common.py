@@ -177,18 +177,17 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
                     except Exception:
                         pass
                 else:
-                    # Скидка — спрашиваем сумму для расчёта
-                    from states import AdminReferralCheckState
-                    await state.set_state(AdminReferralCheckState.waiting_amount)
-                    await state.update_data(reward_code=code, reward_type=reward["reward_type"],
-                                            owner=owner, owner_tid=reward["telegram_id"])
-                    discounts = {'discount_30': 30, 'discount_50': 50}
-                    pct = discounts[reward["reward_type"]]
+                    # Скидка — показываем игры с ценами
+                    from handlers.admin import _ask_event_for_discount
                     await message.answer(
                         f"✅ Код действителен!\n\n"
                         f"🎁 {label}\n"
-                        f"👤 Владелец: {owner}\n\n"
-                        f"💰 Введите полную стоимость участия (в сумах):"
+                        f"👤 Владелец: {owner}"
+                    )
+                    await _ask_event_for_discount(
+                        message, db, state,
+                        reward_code=code, reward_type=reward["reward_type"],
+                        owner=owner, owner_tid=reward["telegram_id"]
                     )
         else:
             await message.answer("Эта ссылка предназначена для сотрудников Разумбоя.", reply_markup=main_menu(_is_admin))

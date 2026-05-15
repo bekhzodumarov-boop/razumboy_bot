@@ -10,27 +10,48 @@ from keyboards.inline import upcoming_event_kb
 router = Router()
 
 
+def _generate_qr(code: str):
+    """Генерирует QR-код с диплинком для верификации. Возвращает BytesIO."""
+    import io
+    import qrcode
+    deep_link = f"https://t.me/Razumboy_Bot?start=verify_{code}"
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(deep_link)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
 async def _send_reward_notification(bot, telegram_id: int, reward: dict):
-    """Отправляет пользователю уведомление о полученной награде с кодом."""
+    """Отправляет пользователю уведомление о награде с QR-кодом."""
+    from aiogram.types import BufferedInputFile
     reward_icons = {
         'discount_30': '🎉',
         'discount_50': '🔥',
         'free_pass':   '🏆',
     }
     icon = reward_icons.get(reward['reward_type'], '🎁')
-    text = (
+    caption = (
         f"{icon} <b>Поздравляем! Вы получили награду!</b>\n\n"
         f"🎁 Награда: <b>{reward['reward_label']}</b>\n\n"
-        f"🔑 Ваш код:\n"
-        f"<code>{reward['code']}</code>\n\n"
-        f"📋 <b>Как использовать:</b>\n"
-        f"Покажите этот код организатору при оплате следующей игры.\n\n"
-        f"⚠️ Код одноразовый. Сохраните его — он также доступен в разделе «🎁 Рефералы»."
+        f"📱 <b>Как использовать:</b>\n"
+        f"Покажите этот QR-код сотруднику при оплате — он отсканирует и активирует скидку.\n\n"
+        f"🔑 Код (если QR не читается): <code>{reward['code']}</code>\n\n"
+        f"⚠️ Одноразовый. Также доступен в разделе «🎁 Рефералы»."
     )
     try:
-        await bot.send_message(telegram_id, text)
+        qr_buf = _generate_qr(reward['code'])
+        qr_file = BufferedInputFile(qr_buf.read(), filename="reward_qr.png")
+        await bot.send_photo(telegram_id, photo=qr_file, caption=caption)
     except Exception:
-        pass
+        # Fallback: просто текст если QR не сгенерировался
+        try:
+            await bot.send_message(telegram_id, caption)
+        except Exception:
+            pass
 
 
 MONTHS_RU = {
@@ -121,8 +142,45 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
     db.set_subscription(user.id, True)
     _is_admin = user.id in admin_ids
 
-    # Deep link: /start ref<telegram_id> — реферальная ссылка
+    # Deep link: /start verify_RAZUM-XXXXXX — сотрудник сканирует QR для верификации
     parts = message.text.split() if message.text else []
+    if len(parts) > 1 and parts[1].startswith("verify_"):
+        code = parts[1][7:]  # убираем "verify_"
+        if user.id in admin_ids:
+            reward = db.get_reward_by_code(code)
+            if not reward:
+                await message.answer(f"❌ Код <code>{code}</code> не найден.", reply_markup=main_menu(_is_admin))
+            elif reward["status"] != "active":
+                used_at = reward["used_at"][:10] if reward["used_at"] else "—"
+                await message.answer(
+                    f"⚠️ Код <code>{code}</code> уже использован ({used_at}).",
+                    reply_markup=main_menu(_is_admin)
+                )
+            else:
+                db.mark_reward_used(code)
+                reward_labels = {'discount_30': 'Скидка 30%', 'discount_50': 'Скидка 50%', 'free_pass': 'Бесплатная проходка'}
+                label = reward_labels.get(reward["reward_type"], reward["reward_type"])
+                owner = f"@{reward['username']}" if reward['username'] else reward['full_name'] or f"id{reward['telegram_id']}"
+                await message.answer(
+                    f"✅ <b>Код активирован!</b>\n\n"
+                    f"🎁 Награда: <b>{label}</b>\n"
+                    f"👤 Владелец: {owner}\n\n"
+                    f"Код <code>{code}</code> отмечен как использованный.",
+                    reply_markup=main_menu(_is_admin)
+                )
+                # Уведомляем владельца кода
+                try:
+                    await message.bot.send_message(
+                        reward["telegram_id"],
+                        f"✅ Ваш бонус «{label}» был активирован организатором. Наслаждайтесь игрой! 🎉"
+                    )
+                except Exception:
+                    pass
+        else:
+            await message.answer("Эта ссылка предназначена для сотрудников Разумбоя.", reply_markup=main_menu(_is_admin))
+        return
+
+    # Deep link: /start ref<telegram_id> — реферальная ссылка
     if len(parts) > 1 and parts[1].startswith("ref") and is_new_user:
         try:
             referrer_id = int(parts[1][3:])

@@ -39,18 +39,49 @@ async def referral_panel(message: Message, db):
     lines.append("  ℹ️ После получения награды счётчик обнуляется")
 
     # Активные коды
+    qr_buttons = []
     if active_rewards:
         lines.append(f"\n🎟 <b>Ваши активные коды ({len(active_rewards)}):</b>")
         for r in active_rewards:
             issued = r["issued_at"][:10]
             lines.append(f"  🔑 <code>{r['reward_code']}</code> — {_reward_label(r['reward_type'])} (выдан {issued})")
-        lines.append("\nПокажите код организатору при оплате.")
+            qr_buttons.append([InlineKeyboardButton(
+                text=f"📱 QR-код — {_reward_label(r['reward_type'])}",
+                callback_data=f"show_reward_qr_{r['reward_code']}"
+            )])
+        lines.append("\n📱 Нажмите кнопку ниже чтобы показать QR-код сотруднику.")
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=f"Присоединяйся к Разумбою! {ref_link}")
-    ]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=f"Присоединяйся к Разумбою! {ref_link}")],
+        *qr_buttons,
+    ])
 
     await message.answer("\n".join(lines), reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("show_reward_qr_"))
+async def show_reward_qr(callback: CallbackQuery, db):
+    from aiogram.types import BufferedInputFile
+    from handlers.common import _generate_qr, _send_reward_notification
+    code = callback.data.split("show_reward_qr_")[1]
+    reward = db.get_reward_by_code(code)
+    if not reward or reward["status"] != "active":
+        await callback.answer("Код уже использован или не найден.", show_alert=True)
+        return
+    reward_labels = {'discount_30': 'Скидка 30%', 'discount_50': 'Скидка 50%', 'free_pass': 'Бесплатная проходка'}
+    label = reward_labels.get(reward["reward_type"], "Бонус")
+    qr_buf = _generate_qr(code)
+    qr_file = BufferedInputFile(qr_buf.read(), filename="reward_qr.png")
+    await callback.message.answer_photo(
+        photo=qr_file,
+        caption=(
+            f"📱 <b>QR-код для активации</b>\n\n"
+            f"🎁 {label}\n"
+            f"🔑 Код: <code>{code}</code>\n\n"
+            f"Покажите этот QR сотруднику — он отсканирует и активирует бонус."
+        )
+    )
+    await callback.answer()
 
 
 def _progress_bar(current: int, total: int) -> str:

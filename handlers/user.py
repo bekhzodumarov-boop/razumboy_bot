@@ -51,13 +51,11 @@ async def referral_panel(message: Message, db):
             )])
         lines.append("\n📱 Нажмите кнопку ниже чтобы показать QR-код сотруднику.")
 
-    share_text = (
-        f"🧠 Квиз Разумбой — Ташкент!\n\n"
-        f"Регистрируйся на игры и участвуй в ежедневных розыгрышах кепок:\n"
-        f"👉 {ref_link}"
-    )
+    import urllib.parse
+    share_text = "🧠 Квиз Разумбой — Ташкент!\n\nРегистрируйся на игры и участвуй в ежедневных розыгрышах кепок:"
+    share_url = f"https://t.me/share/url?url={urllib.parse.quote(ref_link)}&text={urllib.parse.quote(share_text)}"
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=share_text)],
+        [InlineKeyboardButton(text="📤 Поделиться ссылкой", url=share_url)],
         *qr_buttons,
     ])
 

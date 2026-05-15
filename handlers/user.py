@@ -51,8 +51,13 @@ async def referral_panel(message: Message, db):
             )])
         lines.append("\n📱 Нажмите кнопку ниже чтобы показать QR-код сотруднику.")
 
+    share_text = (
+        f"🧠 Квиз Разумбой — Ташкент!\n\n"
+        f"Регистрируйся на игры и участвуй в ежедневных розыгрышах кепок:\n"
+        f"👉 {ref_link}"
+    )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=f"Присоединяйся к Разумбою! {ref_link}")],
+        [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=share_text)],
         *qr_buttons,
     ])
 

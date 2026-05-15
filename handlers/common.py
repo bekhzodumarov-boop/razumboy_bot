@@ -40,7 +40,7 @@ async def _send_reward_notification(bot, telegram_id: int, reward: dict):
         f"📱 <b>Как использовать:</b>\n"
         f"Покажите этот QR-код сотруднику при оплате — он отсканирует и активирует скидку.\n\n"
         f"🔑 Код (если QR не читается): <code>{reward['code']}</code>\n\n"
-        f"⚠️ Одноразовый. Также доступен в разделе «🎁 Рефералы»."
+        f"⚠️ Одноразовый. Также доступен в разделе «🎁 Бонусы»."
     )
     try:
         qr_buf = _generate_qr(reward['code'])
@@ -319,25 +319,6 @@ async def receive_question(message: Message, state: FSMContext, bot, admin_ids: 
     )
 
 
-@router.message(F.text == "📤 Поделиться ботом")
-async def share_bot(message: Message):
-    share_url = (
-        "https://t.me/share/url"
-        "?url=https%3A%2F%2Ft.me%2FRazumboy_Bot"
-        "&text=%F0%9F%A7%A0+%D0%A0%D0%B0%D0%B7%D1%83%D0%BC%D0%B1%D0%BE%D0%B9+%E2%80%94+"
-        "%D0%BA%D0%B2%D0%B8%D0%B7+%D0%B2+%D0%A2%D0%B0%D1%88%D0%BA%D0%B5%D0%BD%D1%82%D0%B5%21+"
-        "%D0%A0%D0%B5%D0%B3%D0%B8%D1%81%D1%82%D1%80%D0%B8%D1%80%D1%83%D0%B9%D1%81%D1%8F+%D0%BD%D0%B0+"
-        "%D0%B8%D0%B3%D1%80%D1%83+%D0%B8+%D1%83%D1%87%D0%B0%D1%81%D1%82%D0%B2%D1%83%D0%B9+%D0%B2+"
-        "%D0%B5%D0%B6%D0%B5%D0%B4%D0%BD%D0%B5%D0%B2%D0%BD%D0%BE%D0%BC+%D1%80%D0%BE%D0%B7%D1%8B%D0%B3%D1%80%D1%8B%D1%88%D0%B5%21"
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="📤 Поделиться с другом", url=share_url)
-    ]])
-    await message.answer(
-        "Расскажи друзьям о Разумбое! 🧠\n\n"
-        "Нажми кнопку ниже — и поделись ботом одним тапом 👇",
-        reply_markup=kb
-    )
 
 
 @router.message(F.text == "🏠 Главное меню")

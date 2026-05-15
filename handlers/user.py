@@ -9,7 +9,7 @@ router = Router()
 
 # ── Реферальная система ───────────────────────────────────────
 
-@router.message(F.text == "🎁 Рефералы")
+@router.message(F.text == "🎁 Бонусы")
 async def referral_panel(message: Message, db):
     uid = message.from_user.id
     stats = db.get_referral_stats(uid)

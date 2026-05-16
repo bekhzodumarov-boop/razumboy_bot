@@ -1436,25 +1436,25 @@ class Database:
                 cur = conn.execute("""
                     SELECT r.referrer_telegram_id as telegram_id,
                            u.username, u.full_name,
-                           COUNT(*) as count
+                           COUNT(*) as ref_count
                     FROM referrals r
                     LEFT JOIN users u ON r.referrer_telegram_id = u.telegram_id
                     WHERE r.qualified = 1
                       AND strftime('%Y-%m', r.qualified_at) = ?
                     GROUP BY r.referrer_telegram_id
-                    ORDER BY count DESC
+                    ORDER BY ref_count DESC
                     LIMIT 10
                 """, (month,))
             else:
                 cur = conn.execute("""
                     SELECT r.referrer_telegram_id as telegram_id,
                            u.username, u.full_name,
-                           COUNT(*) as count
+                           COUNT(*) as ref_count
                     FROM referrals r
                     LEFT JOIN users u ON r.referrer_telegram_id = u.telegram_id
                     WHERE r.qualified = 1
                     GROUP BY r.referrer_telegram_id
-                    ORDER BY count DESC
+                    ORDER BY ref_count DESC
                     LIMIT 10
                 """)
             return cur.fetchall()

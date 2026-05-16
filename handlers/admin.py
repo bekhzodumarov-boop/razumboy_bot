@@ -2283,25 +2283,28 @@ async def referral_admin_panel(message: Message, state: FSMContext, db, admin_id
         return
     await state.clear()
 
-    import datetime as dt
-    current_month = dt.date.today().strftime("%Y-%m")
-    leaderboard = db.get_referral_leaderboard(month=current_month)
+    try:
+        import datetime as dt
+        current_month = dt.date.today().strftime("%Y-%m")
+        leaderboard = db.get_referral_leaderboard(month=current_month)
 
-    lines = [f"🔗 <b>Рефералы — {current_month}</b>\n"]
+        lines = [f"🔗 <b>Рефералы — {current_month}</b>\n"]
 
-    if leaderboard:
-        lines.append("🏆 <b>Топ рефереров этого месяца:</b>")
-        for i, row in enumerate(leaderboard, 1):
-            mention = f"@{row['username']}" if row['username'] else row['full_name'] or f"id{row['telegram_id']}"
-            lines.append(f"{i}. {mention} — {row['count']} чел.")
-    else:
-        lines.append("Рефералов в этом месяце пока нет.")
+        if leaderboard:
+            lines.append("🏆 <b>Топ рефереров этого месяца:</b>")
+            for i, row in enumerate(leaderboard, 1):
+                mention = f"@{row['username']}" if row['username'] else row['full_name'] or f"id{row['telegram_id']}"
+                lines.append(f"{i}. {mention} — {row['ref_count']} чел.")
+        else:
+            lines.append("Рефералов в этом месяце пока нет.")
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔑 Проверить код скидки", callback_data="ref_check_code")],
-        [InlineKeyboardButton(text="📊 Топ за всё время", callback_data="ref_leaderboard_all")],
-    ])
-    await message.answer("\n".join(lines), reply_markup=kb)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔑 Проверить код скидки", callback_data="ref_check_code")],
+            [InlineKeyboardButton(text="📊 Топ за всё время", callback_data="ref_leaderboard_all")],
+        ])
+        await message.answer("\n".join(lines), reply_markup=kb)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка реферальной панели:\n<code>{e}</code>")
 
 
 @router.callback_query(F.data == "ref_check_code")
@@ -2397,7 +2400,7 @@ async def ref_leaderboard_all(callback: CallbackQuery, db, admin_ids: list[int])
     lines = ["🏆 <b>Топ рефереров за всё время:</b>\n"]
     for i, row in enumerate(leaderboard, 1):
         mention = f"@{row['username']}" if row['username'] else row['full_name'] or f"id{row['telegram_id']}"
-        lines.append(f"{i}. {mention} — {row['count']} чел.")
+        lines.append(f"{i}. {mention} — {row['ref_count']} чел.")
     await callback.message.answer("\n".join(lines))
     await callback.answer()
 

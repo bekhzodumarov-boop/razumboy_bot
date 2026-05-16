@@ -14,6 +14,7 @@ async def referral_panel(message: Message, db):
     uid = message.from_user.id
     stats = db.get_referral_stats(uid)
     active_rewards = db.get_active_rewards(uid)
+    referred_users = db.get_referred_users(uid)
 
     # Реферальная ссылка
     ref_link = f"https://t.me/Razumboy_Bot?start=ref{uid}"
@@ -40,6 +41,13 @@ async def referral_panel(message: Message, db):
         f"📊 <b>Ваш прогресс:</b> {current}/{next_t} — {next_label}",
         progress_bar,
     ]
+
+    # Список приглашённых
+    if referred_users:
+        lines.append(f"\n👥 <b>Ваши приглашённые ({len(referred_users)}):</b>")
+        for i, u in enumerate(referred_users, 1):
+            mention = f"@{u['username']}" if u['username'] else u['full_name'] or f"id{u['telegram_id']}"
+            lines.append(f"  {i}. {mention}")
 
     # Активные коды
     qr_buttons = []

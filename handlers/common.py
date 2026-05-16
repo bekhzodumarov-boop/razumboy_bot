@@ -421,11 +421,18 @@ async def subscribe_phone(message: Message, state: FSMContext, db, bot, admin_id
         current = stats["current_count"]
         next_t = stats["next_threshold"]
         next_label = stats["next_label"]
+        # Имя/никнейм нового участника
+        new_user = message.from_user
+        if new_user.username:
+            new_user_mention = f"@{new_user.username}"
+        else:
+            new_user_mention = new_user.full_name or f"id{new_user.id}"
         # Уведомляем реферера о новом приглашённом
         try:
             await bot.send_message(
                 referrer_id,
                 f"🎉 По вашей реферальной ссылке зарегистрировался новый участник!\n\n"
+                f"👤 {new_user_mention}\n\n"
                 f"📊 Ваш счёт: <b>{current}</b> из <b>{next_t}</b> до «{next_label}»"
             )
         except Exception:

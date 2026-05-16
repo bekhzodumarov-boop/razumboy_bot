@@ -1275,6 +1275,18 @@ class Database:
 
     # ── Реферальная система ───────────────────────────────────────
 
+    def get_referred_users(self, referrer_telegram_id: int) -> list:
+        """Возвращает список квалифицированных рефералов с именами."""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT u.telegram_id, u.username, u.full_name, r.qualified_at
+                FROM referrals r
+                LEFT JOIN users u ON r.referred_telegram_id = u.telegram_id
+                WHERE r.referrer_telegram_id = ? AND r.qualified = 1
+                ORDER BY r.qualified_at DESC
+            """, (referrer_telegram_id,))
+            return cur.fetchall()
+
     def record_referral(self, referrer_telegram_id: int, referred_telegram_id: int) -> bool:
         """Записывает реферала (неквалифицированного). Возвращает True если записан."""
         if referrer_telegram_id == referred_telegram_id:

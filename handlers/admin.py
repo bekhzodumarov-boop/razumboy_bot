@@ -2237,44 +2237,6 @@ async def tmpl_del(callback: CallbackQuery, db, admin_ids: list[int]):
     await callback.answer("🗑 Удалено")
 
 
-@router.message(F.text & ~F.text.startswith("/"))
-async def blitz_catch_answer(message: Message, bot, db, admin_ids: list[int]):
-    """Перехватываем ответы на блиц-квиз"""
-    import datetime
-    session = db.blitz_get_session()
-    if not session or not session["active"]:
-        return
-    if session["end_time"] and datetime.datetime.now() > datetime.datetime.fromisoformat(session["end_time"]):
-        return
-
-    user_answer = message.text.strip().lower()
-    user_id = message.from_user.id
-    user_name = message.from_user.full_name
-
-    if db.blitz_winner_exists(user_id):
-        return
-
-    if user_answer == session["answer"]:
-        db.blitz_add_winner(user_id, user_name)
-        await message.answer("✅ Правильно! Ваш ответ засчитан!")
-
-        if session["mode"] == "first":
-            db.blitz_stop()
-            username = message.from_user.username
-            mention = f"@{username}" if username else user_name
-            result_text = (
-                f"⚡️ <b>Блиц-квиз завершён!</b>\n\n"
-                f"🏆 Первый правильный ответ:\n"
-                f"1. {mention} — «{message.text.strip()}»\n\n"
-                f"🎉 Поздравляем!"
-            )
-            for sub in db.get_subscribers():
-                try:
-                    await bot.send_message(sub["telegram_id"], result_text)
-                except Exception:
-                    pass
-
-
 # ── Реферальная система (панель администратора) ───────────────
 
 @router.message(F.text == "🔗 Рефералы (панель)")
@@ -2629,3 +2591,45 @@ async def _finalize_discount(message, db, bot, state, code, reward_type, pct, to
         )
     except Exception:
         pass
+
+
+# ── Блиц-квиз: перехват ответов (ДОЛЖЕН БЫТЬ В САМОМ КОНЦЕ!) ──
+# Этот catch-all перехватывает любой текст без "/" — поэтому он
+# обязан стоять после всех специфических хендлеров.
+
+@router.message(F.text & ~F.text.startswith("/"))
+async def blitz_catch_answer(message: Message, bot, db, admin_ids: list[int]):
+    """Перехватываем ответы на блиц-квиз"""
+    import datetime
+    session = db.blitz_get_session()
+    if not session or not session["active"]:
+        return
+    if session["end_time"] and datetime.datetime.now() > datetime.datetime.fromisoformat(session["end_time"]):
+        return
+
+    user_answer = message.text.strip().lower()
+    user_id = message.from_user.id
+    user_name = message.from_user.full_name
+
+    if db.blitz_winner_exists(user_id):
+        return
+
+    if user_answer == session["answer"]:
+        db.blitz_add_winner(user_id, user_name)
+        await message.answer("✅ Правильно! Ваш ответ засчитан!")
+
+        if session["mode"] == "first":
+            db.blitz_stop()
+            username = message.from_user.username
+            mention = f"@{username}" if username else user_name
+            result_text = (
+                f"⚡️ <b>Блиц-квиз завершён!</b>\n\n"
+                f"🏆 Первый правильный ответ:\n"
+                f"1. {mention} — «{message.text.strip()}»\n\n"
+                f"🎉 Поздравляем!"
+            )
+            for sub in db.get_subscribers():
+                try:
+                    await bot.send_message(sub["telegram_id"], result_text)
+                except Exception:
+                    pass

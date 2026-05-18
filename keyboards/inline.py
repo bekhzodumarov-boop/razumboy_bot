@@ -13,6 +13,7 @@ def upcoming_event_kb(event_id: int, bot_username: str = "Razumboy_Bot"):
                 InlineKeyboardButton(text="📝 Зарегистрироваться", callback_data=f"register_event_{event_id}"),
                 InlineKeyboardButton(text="📤 Поделиться", url=share_url),
             ],
+            [InlineKeyboardButton(text="🔙 К списку игр", callback_data="back_to_events_list")],
         ]
     )
 
@@ -22,7 +23,7 @@ def confirm_registration_kb():
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm_registration")],
             [InlineKeyboardButton(text="✏️ Изменить данные", callback_data="edit_registration")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_registration")],
+            [InlineKeyboardButton(text="🔙 Отмена", callback_data="cancel_registration")],
         ]
     )
 

@@ -288,6 +288,16 @@ async def show_event_detail(callback: CallbackQuery, db):
     await callback.answer()
 
 
+@router.callback_query(F.data == "back_to_events_list")
+async def back_to_events_list(callback: CallbackQuery, db):
+    events = db.get_open_events()
+    if not events:
+        await callback.message.answer("Пока нет открытых игр. Скоро добавим новый анонс! 🔔")
+    else:
+        await _show_events_list(callback.message, events)
+    await callback.answer()
+
+
 # ── Пункт 8: Фотографии с игр — список альбомов ──────────────
 @router.message(F.text == "📸 Фотографии с игр")
 async def photos(message: Message, db):
@@ -304,7 +314,17 @@ async def photos(message: Message, db):
 @router.message(F.text == "❓ Задать вопрос")
 async def ask_question(message: Message, state: FSMContext):
     await state.set_state(AskQuestionState.waiting_question)
-    await message.answer("Напишите ваш вопрос — организаторы увидят его и ответят. ✍️")
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔙 Отмена", callback_data="cancel_question")
+    ]])
+    await message.answer("Напишите ваш вопрос — организаторы увидят его и ответят. ✍️", reply_markup=cancel_kb)
+
+
+@router.callback_query(F.data == "cancel_question")
+async def cancel_question(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    await state.clear()
+    await callback.message.answer("Отменено.", reply_markup=main_menu(callback.from_user.id in admin_ids))
+    await callback.answer()
 
 
 @router.message(AskQuestionState.waiting_question)

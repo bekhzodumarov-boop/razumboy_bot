@@ -47,6 +47,7 @@ def broadcast_type_kb():
             [InlineKeyboardButton(text="📨 Напоминание в день игры", callback_data="broadcast_dayof")],
             [InlineKeyboardButton(text="✍️ Свой пост", callback_data="broadcast_custom")],
             [InlineKeyboardButton(text="📋 Из шаблона", callback_data="broadcast_from_template")],
+            [InlineKeyboardButton(text="🔙 Отмена", callback_data="broadcast_cancel")],
         ]
     )
 

@@ -9,17 +9,14 @@ router = Router()
 
 # ── Реферальная система ───────────────────────────────────────
 
-@router.message(F.text == "🎁 Бонусы")
-async def referral_panel(message: Message, db):
-    uid = message.from_user.id
+async def _build_bonuses_panel(uid: int, db):
+    """Строит текст и клавиатуру панели бонусов."""
+    import urllib.parse
     stats = db.get_referral_stats(uid)
     active_rewards = db.get_active_rewards(uid)
     referred_users = db.get_referred_users(uid)
 
-    # Реферальная ссылка
     ref_link = f"https://t.me/Razumboy_Bot?start=ref{uid}"
-
-    # Прогресс к следующей награде
     current = stats["current_count"]
     next_t = stats["next_threshold"]
     next_label = stats["next_label"]
@@ -42,14 +39,12 @@ async def referral_panel(message: Message, db):
         progress_bar,
     ]
 
-    # Список приглашённых
     if referred_users:
         lines.append(f"\n👥 <b>Ваши приглашённые ({len(referred_users)}):</b>")
         for i, u in enumerate(referred_users, 1):
             mention = f"@{u['username']}" if u['username'] else u['full_name'] or f"id{u['telegram_id']}"
             lines.append(f"  {i}. {mention}")
 
-    # Активные коды
     qr_buttons = []
     if active_rewards:
         lines.append(f"\n🎟 <b>Ваши активные коды ({len(active_rewards)}):</b>")
@@ -62,21 +57,25 @@ async def referral_panel(message: Message, db):
             )])
         lines.append("\n📱 Нажмите кнопку ниже чтобы показать QR-код сотруднику.")
 
-    import urllib.parse
     share_text = "🧠 Квиз Разумбой — Ташкент!\n\nПодпишись на наш бот и стань участником нашего комьюнити!\nТебя ждут интересные игры, веселая компания и крутые призы!"
     share_url = f"https://t.me/share/url?url={urllib.parse.quote(ref_link)}&text={urllib.parse.quote(share_text)}"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📤 Поделиться ссылкой", url=share_url)],
         *qr_buttons,
     ])
+    return "\n".join(lines), kb
 
-    await message.answer("\n".join(lines), reply_markup=kb)
+
+@router.message(F.text == "🎁 Бонусы")
+async def referral_panel(message: Message, db):
+    text, kb = await _build_bonuses_panel(message.from_user.id, db)
+    await message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("show_reward_qr_"))
 async def show_reward_qr(callback: CallbackQuery, db):
     from aiogram.types import BufferedInputFile
-    from handlers.common import _generate_qr, _send_reward_notification
+    from handlers.common import _generate_qr
     code = callback.data.split("show_reward_qr_")[1]
     reward = db.get_reward_by_code(code)
     if not reward or reward["status"] != "active":
@@ -86,6 +85,9 @@ async def show_reward_qr(callback: CallbackQuery, db):
     label = reward_labels.get(reward["reward_type"], "Бонус")
     qr_buf = _generate_qr(code)
     qr_file = BufferedInputFile(qr_buf.read(), filename="reward_qr.png")
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔙 Назад к бонусам", callback_data="back_to_bonuses")
+    ]])
     await callback.message.answer_photo(
         photo=qr_file,
         caption=(
@@ -93,8 +95,17 @@ async def show_reward_qr(callback: CallbackQuery, db):
             f"🎁 {label}\n"
             f"🔑 Код: <code>{code}</code>\n\n"
             f"Покажите этот QR сотруднику — он отсканирует и активирует бонус."
-        )
+        ),
+        reply_markup=back_kb
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_bonuses")
+async def back_to_bonuses(callback: CallbackQuery, db):
+    """Возврат в панель бонусов из QR-кода"""
+    text, kb = await _build_bonuses_panel(callback.from_user.id, db)
+    await callback.message.answer(text, reply_markup=kb)
     await callback.answer()
 
 

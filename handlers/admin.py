@@ -266,11 +266,22 @@ async def edit_event_choose_field(callback: CallbackQuery, state: FSMContext, db
         [InlineKeyboardButton(text="📍 Место", callback_data="edit_field_location")],
         [InlineKeyboardButton(text="🔗 Ссылка на карту", callback_data="edit_field_location_url")],
         [InlineKeyboardButton(text="💰 Цена", callback_data="edit_field_price_text")],
+        [InlineKeyboardButton(text="🔙 Назад к списку игр", callback_data="back_to_events_admin")],
     ])
     await callback.message.answer(
         f"Редактирование игры <b>{event['title']}</b>\nЧто хотите изменить?",
         reply_markup=fields_kb
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_events_admin")
+async def back_to_events_admin(callback: CallbackQuery, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.clear()
+    await callback.message.answer("Возврат в список игр.", reply_markup=admin_menu())
     await callback.answer()
 
 
@@ -431,6 +442,16 @@ async def export_excel(message: Message, state: FSMContext, db, admin_ids: list[
 
 
 # ── Рассылка ──────────────────────────────────────────────────
+
+@router.callback_query(F.data == "broadcast_cancel")
+async def broadcast_cancel(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.clear()
+    await callback.message.answer("Рассылка отменена.", reply_markup=admin_menu())
+    await callback.answer()
+
 
 @router.message(F.text == "📨 Рассылка")
 async def broadcast_menu(message: Message, state: FSMContext, admin_ids: list[int]):
@@ -1423,8 +1444,19 @@ async def blitz_set_duration(message: Message, state: FSMContext):
     mode_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🥇 Первый правильный ответ", callback_data="blitz_mode_first")],
         [InlineKeyboardButton(text="👥 Все правильно ответившие", callback_data="blitz_mode_all")],
+        [InlineKeyboardButton(text="🔙 Отмена", callback_data="blitz_cancel")],
     ])
     await message.answer("Выберите режим победителей:", reply_markup=mode_kb)
+
+
+@router.callback_query(F.data == "blitz_cancel")
+async def blitz_cancel(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.clear()
+    await callback.message.answer("Блиц-квиз отменён.", reply_markup=admin_menu())
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("blitz_mode_"), BlitzQuizState.mode)
@@ -1615,7 +1647,10 @@ def _days_kb(active_days_str: str) -> InlineKeyboardMarkup:
             callback_data=f"gw_day_{i}"
         ))
     buttons.append(row)
-    buttons.append([InlineKeyboardButton(text="💾 Сохранить", callback_data="gw_days_done")])
+    buttons.append([
+        InlineKeyboardButton(text="💾 Сохранить", callback_data="gw_days_done"),
+        InlineKeyboardButton(text="🔙 Назад", callback_data="gw_back"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -1799,6 +1834,26 @@ async def gw_days_done(callback: CallbackQuery, db, admin_ids: list[int]):
         f"✅ Дни розыгрыша сохранены: <b>{', '.join(day_names)}</b>",
         reply_markup=admin_menu()
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "gw_back")
+async def gw_back(callback: CallbackQuery, db, admin_ids: list[int]):
+    """Возврат в меню настроек гивэвея"""
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    import datetime as dt
+    s = db.get_giveaway_settings()
+    today = dt.datetime.now(tz=dt.timezone(dt.timedelta(hours=5))).strftime("%Y-%m-%d")
+    raw_session = db.get_giveaway_session(today)
+    session = None
+    if raw_session:
+        session = dict(raw_session)
+        session["_participants"] = db.count_giveaway_participants(raw_session["id"])
+    text = _giveaway_settings_text(s, session)
+    active = bool(s and s["active"])
+    await callback.message.answer(text, reply_markup=_giveaway_menu_kb(bool(s), active))
     await callback.answer()
 
 
@@ -2263,6 +2318,7 @@ async def referral_admin_panel(message: Message, state: FSMContext, db, admin_id
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔑 Проверить код скидки", callback_data="ref_check_code")],
             [InlineKeyboardButton(text="📊 Топ за всё время", callback_data="ref_leaderboard_all")],
+            [InlineKeyboardButton(text="🔙 В админ-меню", callback_data="ref_back_admin")],
         ])
         await message.answer("\n".join(lines), reply_markup=kb)
     except Exception as e:
@@ -2363,7 +2419,20 @@ async def ref_leaderboard_all(callback: CallbackQuery, db, admin_ids: list[int])
     for i, row in enumerate(leaderboard, 1):
         mention = f"@{row['username']}" if row['username'] else row['full_name'] or f"id{row['telegram_id']}"
         lines.append(f"{i}. {mention} — {row['ref_count']} чел.")
-    await callback.message.answer("\n".join(lines))
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔙 Назад", callback_data="ref_back_admin")
+    ]])
+    await callback.message.answer("\n".join(lines), reply_markup=back_kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "ref_back_admin")
+async def ref_back_admin(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.clear()
+    await callback.message.answer("Админ-меню:", reply_markup=admin_menu())
     await callback.answer()
 
 

@@ -1166,7 +1166,8 @@ async def show_giveaway_winners(callback: CallbackQuery, db, admin_ids: list[int
 
     lines = [f"🏆 <b>Победители Рандомбой {label} ({len(winners)} чел.):</b>\n"]
     for i, w in enumerate(winners, 1):
-        mention = f"@{w['username']}" if w["username"] else w["full_name"] or f"id{w['telegram_id']}"
+        from handlers.giveaway import _winner_mention
+        mention = _winner_mention(w["username"], w["full_name"], w["telegram_id"])
         won_date = w["won_at"][:10]  # YYYY-MM-DD
         lines.append(f"{i}. {mention} - {won_date}")
 
@@ -1577,7 +1578,10 @@ async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, ad
             lines = ["⚡️ <b>Блиц-квиз завершён!</b>\n\n🏆 Победители:"]
             for i, w in enumerate(winners, 1):
                 winner_user = db.get_user_by_telegram_id(w["telegram_id"])
-                mention = f"@{winner_user['username']}" if winner_user and winner_user["username"] else w["full_name"]
+                un = winner_user["username"] if winner_user else ""
+                fn = (winner_user["full_name"] if winner_user else None) or w["full_name"]
+                from handlers.giveaway import _winner_mention
+                mention = _winner_mention(un, fn, w["telegram_id"])
                 lines.append(f"{i}. {mention}")
             lines.append("\n🎉 Поздравляем!")
             result_text = "\n".join(lines)

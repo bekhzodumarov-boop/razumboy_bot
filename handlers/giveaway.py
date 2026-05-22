@@ -168,12 +168,7 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
     winners = random.sample(list(participants), winners_count)
 
     # Формируем упоминания победителей
-    def mention(p) -> str:
-        if p["username"]:
-            return f"@{p['username']}"
-        return p["full_name"] or f"id{p['telegram_id']}"
-
-    winner_mentions = [mention(w) for w in winners]
+    winner_mentions = [_winner_mention(w["username"], w["full_name"], w["telegram_id"]) for w in winners]
 
     # Текст поздравления
     congrats_template = settings["congrats_text"] or (
@@ -357,13 +352,23 @@ def _winner_reminder_kb(date_compact: str) -> InlineKeyboardMarkup:
     ])
 
 
+def _winner_mention(username: str, full_name: str, telegram_id: int) -> str:
+    """Форматирует упоминание победителя: @username или кликабельная ссылка по telegram_id."""
+    if username:
+        return f"@{username}"
+    display = full_name or f"id{telegram_id}"
+    if telegram_id and telegram_id > 0:
+        return f'<a href="tg://user?id={telegram_id}">{display}</a>'
+    return display
+
+
 def _format_admin_winner_list(responses, reminder_date: str) -> str:
     """Форматирует список победителей с иконками статуса для админа."""
     icons = {"pending": "⏳", "confirmed": "✅", "declined": "❌"}
     lines = [f"🎟 <b>Победители Рандомбой ({reminder_date}):</b>\n"]
     for r in responses:
         icon = icons.get(r["status"], "⏳")
-        mention = f"@{r['username']}" if r["username"] else r["full_name"] or f"id{r['telegram_id']}"
+        mention = _winner_mention(r["username"], r["full_name"], r["telegram_id"])
         line = f"{icon} {mention}"
         if r["status"] == "confirmed" and r["team_name"]:
             line += f" — {r['team_name']}"

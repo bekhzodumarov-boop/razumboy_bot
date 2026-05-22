@@ -8,6 +8,7 @@ from database import Database
 from handlers import common_router, registration_router, admin_router, user_router, giveaway_router
 from handlers.giveaway import check_giveaway_schedule, send_friday_winner_reminders
 from handlers.admin import auto_remind_day_before, auto_remind_day_of
+from utils import sync_templates_to_db
 
 # Включаем логирование всех ошибок
 logging.basicConfig(
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 async def main():
     config = load_config()
     db = Database(config.db_path)
+
+    # Синхронизируем шаблоны из Obsidian-файлов в базу данных
+    sync_templates_to_db(db)
 
     bot = Bot(
         token=config.bot_token,

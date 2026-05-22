@@ -353,12 +353,13 @@ def _winner_reminder_kb(date_compact: str) -> InlineKeyboardMarkup:
 
 
 def _winner_mention(username: str, full_name: str, telegram_id: int) -> str:
-    """Форматирует упоминание победителя: @username или кликабельная ссылка по telegram_id."""
+    """Форматирует упоминание победителя: @username или ссылка + ID для пользователей без ника."""
     if username:
         return f"@{username}"
-    display = full_name or f"id{telegram_id}"
+    display = full_name or "—"
     if telegram_id and telegram_id > 0:
-        return f'<a href="tg://user?id={telegram_id}">{display}</a>'
+        # Ссылка + копируемый ID (ссылка может не открыться из-за privacy settings)
+        return f'<a href="tg://user?id={telegram_id}">{display}</a> [<code>{telegram_id}</code>]'
     return display
 
 

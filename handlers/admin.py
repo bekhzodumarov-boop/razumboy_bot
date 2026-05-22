@@ -1174,17 +1174,17 @@ async def show_giveaway_winners(callback: CallbackQuery, db, admin_ids: list[int
     # Разбиваем на части если список большой
     text = "\n".join(lines)
     if len(text) <= 4096:
-        await callback.message.answer(text)
+        await callback.message.answer(text, parse_mode="HTML")
     else:
         chunk = []
         header = lines[0]
         for line in lines[1:]:
             chunk.append(line)
             if len(header + "\n" + "\n".join(chunk)) > 3800:
-                await callback.message.answer(header + "\n" + "\n".join(chunk[:-1]))
+                await callback.message.answer(header + "\n" + "\n".join(chunk[:-1]), parse_mode="HTML")
                 chunk = [line]
         if chunk:
-            await callback.message.answer(header + "\n" + "\n".join(chunk))
+            await callback.message.answer(header + "\n" + "\n".join(chunk), parse_mode="HTML")
 
     # Кнопка «Отправить сообщение» — показываем всегда
     eligible_count = sum(1 for w in winners if w["telegram_id"] > 0)

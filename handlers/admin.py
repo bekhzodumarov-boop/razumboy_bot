@@ -1285,9 +1285,18 @@ async def winners_broadcast_confirm(callback: CallbackQuery, state: FSMContext, 
         return
 
     data = await state.get_data()
-    period = data["winners_period"]
-    text = data["broadcast_text"]
+    period = data.get("winners_period")
+    text = data.get("broadcast_text")
     await state.clear()
+
+    if not period or not text:
+        await callback.message.answer(
+            "⚠️ Данные рассылки потеряны (бот перезапустился).\n"
+            "Пожалуйста, начните рассылку заново.",
+            reply_markup=admin_menu()
+        )
+        await callback.answer()
+        return
 
     if period == "all":
         winners = db.get_giveaway_winners_since(days=36500)

@@ -752,6 +752,16 @@ class Database:
                 """, (limit,))
             return cur.fetchall()
 
+    def get_broadcast_by_id(self, broadcast_id: int):
+        """Получить одну рассылку по ID."""
+        with self._connect() as conn:
+            return conn.execute("""
+                SELECT b.*, e.title as event_title
+                FROM broadcasts b
+                LEFT JOIN events e ON b.event_id = e.id
+                WHERE b.id = ?
+            """, (broadcast_id,)).fetchone()
+
     def get_all_subscribers(self) -> list:
         """Все подписчики с никами"""
         with self._connect() as conn:

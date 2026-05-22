@@ -30,6 +30,16 @@ def is_admin(user_id: int, admin_ids: list[int]) -> bool:
     return user_id in admin_ids
 
 
+def _utc_to_tashkent(sent_at_str: str) -> str:
+    """Конвертирует UTC время из БД в Ташкентское (UTC+5)."""
+    try:
+        dt = datetime.datetime.fromisoformat(sent_at_str.replace("T", " ")[:19])
+        dt_tashkent = dt + datetime.timedelta(hours=5)
+        return dt_tashkent.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return sent_at_str[:16].replace("T", " ")
+
+
 def format_date_ru(date_str: str) -> str:
     """Преобразует 2026-04-10 → 10 апреля 2026 г. (пятница)"""
     try:
@@ -891,10 +901,10 @@ async def _show_broadcasts_list(target, db, btype: str = "all"):
         preview = clean_text[:80].replace("\n", " ")
         if len(clean_text) > 80:
             preview += "..."
-        sent_at = b["sent_at"][:16].replace("T", " ")
+        sent_at = _utc_to_tashkent(b["sent_at"])
         text = (
             f"{i}. {btype_icon} <b>{label}</b>\n"
-            f"📅 {sent_at} | 📨 {b['sent_count']} чел.\n"
+            f"📅 {sent_at} (Ташкент) | 📨 {b['sent_count']} чел.\n"
             f"<i>{preview}</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -927,19 +937,18 @@ async def view_broadcast_text(callback: CallbackQuery, db, admin_ids: list[int])
         await callback.answer()
         return
     broadcast_id = int(callback.data.split("_")[-1])
-    broadcasts = db.get_broadcasts(limit=100)
-    b = next((x for x in broadcasts if x["id"] == broadcast_id), None)
+    b = db.get_broadcast_by_id(broadcast_id)
     if not b:
         await callback.answer("Рассылка не найдена.", show_alert=True)
         return
     btype_icon = "🤖" if b["broadcast_type"] == "auto" else "✍️"
     label = b["recipients_info"] or b["event_title"] or "Свой пост"
-    sent_at = b["sent_at"][:16].replace("T", " ")
-    header = f"{btype_icon} <b>{label}</b> | {sent_at} | {b['sent_count']} чел.\n\n"
-    full_text = header + b["message_text"]
+    sent_at = _utc_to_tashkent(b["sent_at"])
+    header = f"{btype_icon} <b>{label}</b>\n📅 {sent_at} (Ташкент) | 📨 {b['sent_count']} чел.\n\n"
+    full_text = header + (b["message_text"] or "")
     if len(full_text) > 4096:
         full_text = full_text[:4090] + "..."
-    await callback.message.answer(full_text)
+    await callback.message.answer(full_text, parse_mode="HTML")
     await callback.answer()
 
 

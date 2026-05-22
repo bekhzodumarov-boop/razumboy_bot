@@ -91,3 +91,7 @@ class AdminReferralCheckState(StatesGroup):
 
 class AdminAddWinnerState(StatesGroup):
     full_name = State()       # имя победителя для ручного добавления
+
+
+class AdminReplyState(StatesGroup):
+    waiting_text = State()    # текст ответа на вопрос пользователя

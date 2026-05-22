@@ -4,7 +4,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
-from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState, AdminReferralCheckState, AdminAddWinnerState
+from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState, AdminReferralCheckState, AdminAddWinnerState, AdminReplyState
 
 router = Router()
 
@@ -2725,6 +2725,54 @@ async def _finalize_discount(message, db, bot, state, code, reward_type, pct, to
         )
     except Exception:
         pass
+
+
+# ── Ответ на вопрос пользователя ─────────────────────────────
+
+@router.callback_query(F.data.startswith("reply_to_user_"))
+async def reply_to_user_start(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer("Нет прав.", show_alert=True)
+        return
+    user_id = int(callback.data.split("reply_to_user_")[1])
+    await state.set_state(AdminReplyState.waiting_text)
+    await state.update_data(reply_to_user_id=user_id)
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔙 Отмена", callback_data="cancel_reply_to_user")
+    ]])
+    await callback.message.answer(
+        "✍️ Введите текст ответа пользователю:",
+        reply_markup=cancel_kb
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cancel_reply_to_user")
+async def cancel_reply_to_user(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("❌ Ответ отменён.")
+    await callback.answer()
+
+
+@router.message(AdminReplyState.waiting_text)
+async def reply_to_user_send(message: Message, state: FSMContext, bot, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    data = await state.get_data()
+    user_id = data.get("reply_to_user_id")
+    reply_text = message.text.strip() if message.text else None
+    if not reply_text:
+        await message.answer("Пожалуйста, отправьте текстовый ответ. ✍️")
+        return
+    try:
+        await bot.send_message(
+            user_id,
+            f"💬 <b>Ответ организаторов:</b>\n\n{reply_text}"
+        )
+        await message.answer(f"✅ Ответ отправлен пользователю.")
+    except Exception as e:
+        await message.answer(f"❌ Не удалось отправить ответ: {e}")
+    await state.clear()
 
 
 # ── Блиц-квиз: перехват ответов (ДОЛЖЕН БЫТЬ В САМОМ КОНЦЕ!) ──

@@ -333,15 +333,20 @@ async def receive_question(message: Message, state: FSMContext, bot, admin_ids: 
         await message.answer("Пожалуйста, отправьте текстовый вопрос. ✍️")
         return
     question = message.text.strip()
-    # Пересылаем вопрос админам
+    user = message.from_user
+    user_mention = f"@{user.username}" if user.username else (user.full_name or f"id{user.id}")
+    # Пересылаем вопрос админам с кнопкой «Ответить»
     admin_text = (
         f"❓ <b>Вопрос от пользователя</b>\n\n"
         f"{question}\n\n"
-        f"User: @{message.from_user.username or 'без username'} ({message.from_user.id})"
+        f"👤 {user_mention} (id: <code>{user.id}</code>)"
     )
+    reply_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="↩️ Ответить", callback_data=f"reply_to_user_{user.id}")
+    ]])
     for admin_id in admin_ids:
         try:
-            await bot.send_message(admin_id, admin_text)
+            await bot.send_message(admin_id, admin_text, reply_markup=reply_kb)
         except Exception:
             pass
 

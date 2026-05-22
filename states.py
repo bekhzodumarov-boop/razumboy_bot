@@ -87,3 +87,7 @@ class AdminWinnersBroadcastState(StatesGroup):
 class AdminReferralCheckState(StatesGroup):
     waiting_code = State()    # ввод кода скидки для верификации
     waiting_event = State()   # выбор игры для применения скидки
+
+
+class AdminAddWinnerState(StatesGroup):
+    full_name = State()       # имя победителя для ручного добавления

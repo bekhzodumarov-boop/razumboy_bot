@@ -4,7 +4,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
-from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState, AdminReferralCheckState
+from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState, AdminReferralCheckState, AdminAddWinnerState
 
 router = Router()
 
@@ -1050,6 +1050,7 @@ async def giveaway_winners_menu(message: Message, state: FSMContext, admin_ids: 
         [InlineKeyboardButton(text="📅 За последние 30 дней", callback_data="winners_30")],
         [InlineKeyboardButton(text="📜 За всё время",         callback_data="winners_all")],
         [InlineKeyboardButton(text="🔗 Обновить Telegram ID победителей", callback_data="winners_resolve_ids")],
+        [InlineKeyboardButton(text="➕ Добавить победителя вручную", callback_data="winners_add_manual")],
     ])
     await message.answer("🏆 <b>Победители Рандомбой</b>\n\nВыберите период:", reply_markup=kb)
 
@@ -1082,7 +1083,67 @@ async def winners_resolve_ids(callback: CallbackQuery, db, admin_ids: list[int])
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("winners_") & ~F.data.startswith("winners_send_") & ~F.data.startswith("winners_broadcast_"))
+@router.callback_query(F.data == "winners_add_manual")
+async def winners_add_manual_start(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    """Начать добавление победителя вручную."""
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    import datetime as dt
+    today = dt.datetime.now(tz=dt.timezone(dt.timedelta(hours=5))).strftime("%Y-%m-%d")
+    await state.set_state(AdminAddWinnerState.full_name)
+    await state.update_data(reminder_date=today)
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔙 Отмена", callback_data="winners_add_cancel")
+    ]])
+    await callback.message.answer(
+        f"Введите имя победителя (он будет добавлен в список на <b>{today}</b>):\n\n"
+        f"Пример: <code>Шахноза Азимова</code>",
+        reply_markup=cancel_kb
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "winners_add_cancel")
+async def winners_add_cancel(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    await state.clear()
+    await callback.message.answer("Отменено.", reply_markup=admin_menu())
+    await callback.answer()
+
+
+@router.message(AdminAddWinnerState.full_name)
+async def winners_add_manual_save(message: Message, state: FSMContext, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        return
+    full_name = message.text.strip()
+    if len(full_name) < 2:
+        await message.answer("Слишком короткое имя. Введите ещё раз:")
+        return
+    data = await state.get_data()
+    reminder_date = data.get("reminder_date")
+    db.add_manual_winner(full_name, reminder_date)
+    await state.clear()
+
+    # Показываем обновлённый список
+    responses = db.get_winner_reminder_responses(reminder_date)
+    from handlers.giveaway import _format_admin_winner_list
+    admin_msg = _format_admin_winner_list(responses, reminder_date)
+    await message.answer(
+        f"✅ <b>{full_name}</b> добавлен(а) в список победителей на {reminder_date}.\n\n"
+        + admin_msg,
+        reply_markup=admin_menu()
+    )
+
+
+@router.callback_query(
+    F.data.startswith("winners_") &
+    ~F.data.startswith("winners_send_") &
+    ~F.data.startswith("winners_broadcast_") &
+    ~F.data.in_({"winners_add_manual", "winners_add_cancel", "winners_resolve_ids"})
+)
 async def show_giveaway_winners(callback: CallbackQuery, db, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()

@@ -1093,16 +1093,33 @@ class Database:
             conn.commit()
 
     def get_giveaway_winners_since(self, days: int = 7) -> list:
-        """Победители за последние N дней. Дедупликация по (username, дата)."""
+        """Победители за последние N дней. Дедупликация по (telegram_id, дата)."""
         with self._connect() as conn:
             cur = conn.execute("""
                 SELECT telegram_id, username, full_name, won_at
                 FROM giveaway_winners
                 WHERE won_at >= datetime('now', ?)
-                GROUP BY username, date(won_at)
+                GROUP BY telegram_id, date(won_at)
                 ORDER BY won_at DESC
             """, (f'-{days} days',))
             return cur.fetchall()
+
+    def add_manual_winner(self, full_name: str, reminder_date: str):
+        """Добавить победителя вручную в giveaway_winners и winner_reminder_responses."""
+        import time
+        # Уникальный отрицательный ID чтобы не конфликтовать
+        fake_tid = -int(time.time() * 1000) % 2_000_000_000
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO giveaway_winners (telegram_id, username, full_name) VALUES (?, '', ?)",
+                (fake_tid, full_name)
+            )
+            conn.execute("""
+                INSERT INTO winner_reminder_responses
+                    (telegram_id, username, full_name, status, reminder_date)
+                VALUES (?, '', ?, 'pending', ?)
+            """, (fake_tid, full_name, reminder_date))
+            conn.commit()
 
     def create_winner_reminder_response(self, telegram_id: int, username: str,
                                          full_name: str, reminder_date: str):

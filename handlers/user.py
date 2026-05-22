@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from states import ConfirmPlayersState, WinnerConfirmState
+from states import ConfirmPlayersState, WinnerConfirmState, EditTeamSizeState
 from database import REFERRAL_THRESHOLDS
 
 router = Router()
@@ -147,7 +147,7 @@ async def my_registrations(message: Message, db):
 
     from handlers.common import format_date_short
     lines = ["<b>Ваши актуальные регистрации:</b>\n"]
-    cancel_buttons = []
+    buttons = []
     for i, r in enumerate(regs, 1):
         date_short = format_date_short(r["event_date"])
         lines.append(
@@ -156,12 +156,18 @@ async def my_registrations(message: Message, db):
             f"   📍 {r['location']}\n"
             f"   👥 Команда: {r['team_name']} ({r['team_size']} чел.)\n"
         )
-        cancel_buttons.append([InlineKeyboardButton(
-            text=f"❌ Отменить: {r['team_name']}",
-            callback_data=f"pre_cancel_reg_{r['id']}"
-        )])
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"✏️ Изменить кол-во",
+                callback_data=f"edit_team_size_{r['id']}"
+            ),
+            InlineKeyboardButton(
+                text=f"❌ Отменить",
+                callback_data=f"pre_cancel_reg_{r['id']}"
+            ),
+        ])
 
-    kb = InlineKeyboardMarkup(inline_keyboard=cancel_buttons)
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.answer("\n".join(lines), reply_markup=kb)
 
 
@@ -289,6 +295,89 @@ async def cancel_players(callback: CallbackQuery, db, bot, admin_ids: list[int])
         f"Команда: <b>{reg['team_name']}</b> ({reg['team_size']} чел.)\n"
         f"Капитан: {reg['captain_name']} | {reg['phone']}\n"
         f"User: @{callback.from_user.username or 'без username'} ({callback.from_user.id})"
+    )
+    for admin_id in admin_ids:
+        try:
+            await bot.send_message(admin_id, admin_text)
+        except Exception:
+            pass
+
+
+# ── Редактирование количества игроков ─────────────────────────
+
+@router.callback_query(F.data.startswith("edit_team_size_"))
+async def edit_team_size_start(callback: CallbackQuery, state: FSMContext, db):
+    registration_id = int(callback.data.split("_")[-1])
+    reg = db.get_registration_by_id(registration_id)
+    if not reg:
+        await callback.answer("Регистрация не найдена.", show_alert=True)
+        return
+    if reg["status"] == "cancelled":
+        await callback.answer("Регистрация уже отменена.", show_alert=True)
+        return
+
+    await state.set_state(EditTeamSizeState.waiting_size)
+    await state.update_data(registration_id=registration_id, team_name=reg["team_name"])
+
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔙 Отмена", callback_data="cancel_edit_team_size")
+    ]])
+    await callback.message.answer(
+        f"✏️ Команда: <b>{reg['team_name']}</b>\n"
+        f"Сейчас: <b>{reg['team_size']} чел.</b>\n\n"
+        f"Введите новое количество игроков (число от 1 до 20):",
+        reply_markup=cancel_kb
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cancel_edit_team_size")
+async def cancel_edit_team_size(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("Отменено.")
+    await callback.answer()
+
+
+@router.message(EditTeamSizeState.waiting_size)
+async def edit_team_size_save(message: Message, state: FSMContext, db, bot, admin_ids: list[int]):
+    import re
+    text = message.text.strip() if message.text else ""
+    match = re.search(r"\d+", text)
+    if not match:
+        await message.answer("Пожалуйста, введите число. Например: <b>7</b>")
+        return
+
+    new_size = int(match.group())
+    if new_size < 1 or new_size > 20:
+        await message.answer("Количество игроков должно быть от 1 до 20.")
+        return
+
+    data = await state.get_data()
+    registration_id = data["registration_id"]
+    team_name = data["team_name"]
+    await state.clear()
+
+    reg = db.get_registration_by_id(registration_id)
+    if not reg:
+        await message.answer("Регистрация не найдена.")
+        return
+
+    old_size = reg["team_size"]
+    db.update_team_size(registration_id, new_size)
+
+    await message.answer(
+        f"✅ Готово! Количество игроков обновлено.\n\n"
+        f"Команда: <b>{team_name}</b>\n"
+        f"Было: {old_size} чел. → Стало: <b>{new_size} чел.</b>"
+    )
+
+    # Уведомляем админов
+    admin_text = (
+        f"✏️ <b>Изменение кол-ва игроков</b>\n\n"
+        f"Команда: <b>{team_name}</b>\n"
+        f"Игра: {reg['title'] or '—'}\n"
+        f"Было: {old_size} → Стало: <b>{new_size}</b>\n"
+        f"User: @{message.from_user.username or 'без username'} ({message.from_user.id})"
     )
     for admin_id in admin_ids:
         try:

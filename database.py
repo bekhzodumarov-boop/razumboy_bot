@@ -697,8 +697,22 @@ class Database:
 
     def get_registration_by_id(self, reg_id) -> Optional[sqlite3.Row]:
         with self._connect() as conn:
-            cur = conn.execute("SELECT * FROM registrations WHERE id = ?", (reg_id,))
+            cur = conn.execute("""
+                SELECT r.*, e.title, e.event_date, e.event_time, e.location
+                FROM registrations r
+                LEFT JOIN events e ON r.event_id = e.id
+                WHERE r.id = ?
+            """, (reg_id,))
             return cur.fetchone()
+
+    def update_team_size(self, registration_id: int, team_size: int):
+        """Обновить количество игроков в регистрации."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE registrations SET team_size = ? WHERE id = ?",
+                (team_size, registration_id)
+            )
+            conn.commit()
 
     # ── Подтверждения ─────────────────────────────────────────
 

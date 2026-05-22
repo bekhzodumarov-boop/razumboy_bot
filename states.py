@@ -95,3 +95,7 @@ class AdminAddWinnerState(StatesGroup):
 
 class AdminReplyState(StatesGroup):
     waiting_text = State()    # текст ответа на вопрос пользователя
+
+
+class EditTeamSizeState(StatesGroup):
+    waiting_size = State()    # новое количество игроков

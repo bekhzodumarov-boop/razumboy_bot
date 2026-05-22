@@ -1297,18 +1297,24 @@ async def winners_broadcast_confirm(callback: CallbackQuery, state: FSMContext, 
     eligible = [w for w in winners if w["telegram_id"] > 0]
 
     sent = 0
+    failed = []
     for w in eligible:
         try:
             await bot.send_message(w["telegram_id"], text)
             sent += 1
         except Exception:
-            pass
+            name = w.get("full_name") or w.get("username") or f"id{w['telegram_id']}"
+            failed.append(name)
 
-    await callback.message.answer(
+    result_text = (
         f"✅ Рассылка завершена!\n\n"
-        f"📨 Отправлено: <b>{sent}</b> из <b>{len(eligible)}</b> победителей.",
-        reply_markup=admin_menu()
+        f"📨 Отправлено: <b>{sent}</b> из <b>{len(eligible)}</b> победителей."
     )
+    if failed:
+        result_text += f"\n\n❌ Не доставлено ({len(failed)}):\n" + "\n".join(f"• {n}" for n in failed)
+        result_text += "\n\n💡 Скорее всего эти пользователи заблокировали бота."
+
+    await callback.message.answer(result_text, reply_markup=admin_menu())
     await callback.answer()
 
 

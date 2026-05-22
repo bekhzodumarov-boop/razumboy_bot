@@ -11,6 +11,7 @@ import datetime
 import logging
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from utils import read_template
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -43,10 +44,13 @@ async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
 
     session_id = db.create_giveaway_session(today)
 
-    announce_text = settings["announce_text"] or (
-        "🎉 Скоро часики пробьют 9, значит пришло время принять участие "
-        "в нашем розыгрыше бесплатных проходок на Разумбой!\n\n"
-        "Нажмите кнопку ниже, чтобы участвовать 👇"
+    announce_text = settings["announce_text"] or read_template(
+        "giveaway_announce",
+        fallback=(
+            "🎉 Скоро часики пробьют 9, значит пришло время принять участие "
+            "в нашем розыгрыше бесплатных проходок на Разумбой!\n\n"
+            "Нажмите кнопку ниже, чтобы участвовать 👇"
+        )
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -133,9 +137,12 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
 
     if participants_count == 0:
         # Никто не участвовал
-        no_participants_text = (
-            "😔 К сожалению, никто не принял участие в сегодняшнем розыгрыше.\n\n"
-            "Мы обязательно разыграем проходки в следующий раз! 🎟"
+        no_participants_text = read_template(
+            "giveaway_no_participants",
+            fallback=(
+                "😔 К сожалению, никто не принял участие в сегодняшнем розыгрыше.\n\n"
+                "Мы обязательно разыграем проходки в следующий раз! 🎟"
+            )
         )
         subscribers = db.get_subscribers()
         for user in subscribers:
@@ -171,10 +178,13 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
     winner_mentions = [_winner_mention(w["username"], w["full_name"], w["telegram_id"]) for w in winners]
 
     # Текст поздравления
-    congrats_template = settings["congrats_text"] or (
-        "🎉 Сегодня Рандомбой выбрал {winners}!\n\n"
-        "Вы получаете бесплатные пригласительные на игру Razumboy 🎟\n\n"
-        "Наш менеджер свяжется с вами в ближайшее время."
+    congrats_template = settings["congrats_text"] or read_template(
+        "giveaway_congrats",
+        fallback=(
+            "🎉 Сегодня Рандомбой выбрал {winners}!\n\n"
+            "Вы получаете бесплатные пригласительные на игру Razumboy 🎟\n\n"
+            "Наш менеджер свяжется с вами в ближайшее время."
+        )
     )
 
     if "{winners}" in congrats_template:
@@ -242,12 +252,15 @@ async def giveaway_reminder(bot, db, admin_ids: list, channel_id: int = 0):
     if not non_participants:
         return
 
-    reminder_text = (
-        "⏰ <b>Ещё 10 минут до жеребьёвки!</b>\n\n"
-        "Ты ещё не нажал <b>«Участвую»</b>? Самое время - в <b>21:00</b> "
-        "Рандомбой выберет победителей 🎲\n\n"
-        "🧢 На кону - фирменная кепка <b>Разумбой</b>!\n\n"
-        "Не упусти шанс. Жми прямо сейчас! 👇"
+    reminder_text = read_template(
+        "giveaway_remind",
+        fallback=(
+            "⏰ <b>Ещё 10 минут до жеребьёвки!</b>\n\n"
+            "Ты ещё не нажал <b>«Участвую»</b>? Самое время - в <b>21:00</b> "
+            "Рандомбой выберет победителей 🎲\n\n"
+            "🧢 На кону - фирменная кепка <b>Разумбой</b>!\n\n"
+            "Не упусти шанс. Жми прямо сейчас! 👇"
+        )
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Участвую!", callback_data=f"giveaway_join_{session_id}")
@@ -330,7 +343,7 @@ async def giveaway_join(callback: CallbackQuery, db):
 
 # ── Пятничная рассылка победителям ────────────────────────────
 
-WINNER_REMINDER_TEXT = (
+_WINNER_REMINDER_FALLBACK = (
     "🧢 Добрый вечер!\n\n"
     "Рандомбой сделал свой выбор - и вы победили в розыгрыше фирменной кепки Разумбой!\n\n"
     "Приз вручается лично на ближайшей игре Razumboy: стреляй и пой!\n\n"
@@ -387,6 +400,8 @@ async def send_friday_winner_reminders(bot, db, admin_ids: list):
     today = _today()
     date_compact = today.replace("-", "")  # YYYYMMDD
 
+    winner_reminder_text = read_template("winner_thursday_reminder", fallback=_WINNER_REMINDER_FALLBACK)
+
     sent = 0
     for w in winners:
         # Создаём запись ответа со статусом pending
@@ -399,7 +414,7 @@ async def send_friday_winner_reminders(bot, db, admin_ids: list):
         try:
             await bot.send_message(
                 w["telegram_id"],
-                WINNER_REMINDER_TEXT,
+                winner_reminder_text,
                 reply_markup=_winner_reminder_kb(date_compact),
             )
             sent += 1
@@ -407,7 +422,7 @@ async def send_friday_winner_reminders(bot, db, admin_ids: list):
             logger.warning(f"send_friday_winner_reminders: не удалось отправить {w['telegram_id']}: {e}")
 
     db.save_broadcast(
-        None, WINNER_REMINDER_TEXT, sent,
+        None, winner_reminder_text, sent,
         broadcast_type="auto",
         recipients_info=f"Победители Рандомбой за 5 дней (четверговая рассылка, {today})"
     )

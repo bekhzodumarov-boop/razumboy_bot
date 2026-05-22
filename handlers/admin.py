@@ -5,6 +5,7 @@ from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeybo
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
 from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState, AdminReferralCheckState, AdminAddWinnerState, AdminReplyState
+from utils import read_template
 
 router = Router()
 
@@ -2063,12 +2064,15 @@ async def photo_enter_url(message: Message, state: FSMContext, db, bot):
     await state.clear()
 
     # Рассылка подписчикам
-    broadcast_text = (
-        f"📸 <b>Новые фотографии с игры!</b>\n\n"
-        f"🎉 Мы разобрали фотоархив — и спешим поделиться яркими моментами с <b>{title}</b>!\n\n"
-        f"Смотрите, как это было: смех, азарт, командный дух и, конечно, правильные ответы 😄\n\n"
-        f"👇 Нажмите кнопку ниже, чтобы посмотреть фотографии:"
-    )
+    broadcast_text = read_template(
+        "photo_album_notify",
+        fallback=(
+            "📸 <b>Новые фотографии с игры!</b>\n\n"
+            "🎉 Мы разобрали фотоархив — и спешим поделиться яркими моментами с <b>{title}</b>!\n\n"
+            "Смотрите, как это было: смех, азарт, командный дух и, конечно, правильные ответы 😄\n\n"
+            "👇 Нажмите кнопку ниже, чтобы посмотреть фотографии:"
+        )
+    ).format(title=title)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=f"📸 Смотреть фото — {title}", url=url)
     ]])
@@ -2121,16 +2125,24 @@ async def auto_remind_day_before(bot, db, admin_ids: list):
         if event["location_url"]:
             location_line += f"\n📍 {event['location_url']}"
 
-        text = (
-            f"😎 Добрый день!\n\n"
-            f"Напоминаем, что завтра состоится <b>{event['title']}</b> - "
-            f"и вы ещё можете к нам присоединиться!\n\n"
-            f"📍 {location_line}\n"
-            f"⏰ {event['event_time']}\n"
-            f"💰 {event['price_text'] or 'уточняется'}\n\n"
-            f"📞 Дополнительные заявки принимаются до 16:00 завтрашнего дня.\n"
-            f"✍️ Регистрация: @Razumboy_Bot\n\n"
-            f"До встречи! 😄"
+        text = read_template(
+            "day_before_game",
+            fallback=(
+                "😎 Добрый день!\n\n"
+                "Напоминаем, что завтра состоится <b>{title}</b> - "
+                "и вы ещё можете к нам присоединиться!\n\n"
+                "📍 {location}\n"
+                "⏰ {time}\n"
+                "💰 {price}\n\n"
+                "📞 Дополнительные заявки принимаются до 16:00 завтрашнего дня.\n"
+                "✍️ Регистрация: @Razumboy_Bot\n\n"
+                "До встречи! 😄"
+            )
+        ).format(
+            title=event["title"],
+            location=location_line,
+            time=event["event_time"],
+            price=event["price_text"] or "уточняется",
         )
         sent = 0
         for user in subscribers:
@@ -2177,16 +2189,25 @@ async def auto_remind_day_of(bot, db, admin_ids: list):
         if event["location_url"]:
             location_line += f"\n🗺 {event['location_url']}"
 
+        _game_day_tpl = read_template(
+            "game_day_reminder",
+            fallback=(
+                "❤️ Добрый день!\n\n"
+                "Напоминаем - сегодня вечером <b>{title}</b>!\n\n"
+                "Вы зарегистрировали <b>{size}</b> игроков. "
+                "Пожалуйста, уточните у команды точное количество участников.\n\n"
+                "📍 {location}\n"
+                "⏰ {time}\n\n"
+                "Ждём вас! 💃"
+            )
+        )
         sent = 0
         for reg in registrations:
-            text = (
-                f"❤️ Добрый день!\n\n"
-                f"Напоминаем - сегодня вечером <b>{event['title']}</b>!\n\n"
-                f"Вы зарегистрировали <b>{reg['team_size']}</b> игроков. "
-                f"Пожалуйста, уточните у команды точное количество участников.\n\n"
-                f"📍 {location_line}\n"
-                f"⏰ {event['event_time']}\n\n"
-                f"Ждём вас! 💃"
+            text = _game_day_tpl.format(
+                title=event["title"],
+                size=reg["team_size"],
+                location=location_line,
+                time=event["event_time"],
             )
             try:
                 await bot.send_message(reg["telegram_id"], text)

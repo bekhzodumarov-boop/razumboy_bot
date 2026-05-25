@@ -44,13 +44,13 @@ async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
 
     session_id = db.create_giveaway_session(today)
 
-    announce_text = settings["announce_text"] or read_template(
-        "giveaway_announce",
-        fallback=(
-            "🎉 Скоро часики пробьют 9, значит пришло время принять участие "
-            "в нашем розыгрыше бесплатных проходок на Разумбой!\n\n"
-            "Нажмите кнопку ниже, чтобы участвовать 👇"
-        )
+    # Файл — главный источник. DB — запасной если файл пустой. Hardcoded — крайний случай.
+    announce_text = (
+        read_template("giveaway_announce")
+        or settings["announce_text"]
+        or "🎉 Скоро часики пробьют 9, значит пришло время принять участие "
+           "в нашем розыгрыше бесплатных проходок на Разумбой!\n\n"
+           "Нажмите кнопку ниже, чтобы участвовать 👇"
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -177,10 +177,11 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
     # Формируем упоминания победителей
     winner_mentions = [_winner_mention(w["username"], w["full_name"], w["telegram_id"]) for w in winners]
 
-    # Текст поздравления
-    congrats_template = settings["congrats_text"] or read_template(
-        "giveaway_congrats",
-        fallback=(
+    # Текст поздравления — файл главный, DB запасной, hardcoded крайний случай
+    congrats_template = (
+        read_template("giveaway_congrats")
+        or settings["congrats_text"]
+        or (
             "🎉 Сегодня Рандомбой выбрал {winners}!\n\n"
             "Вы получаете бесплатные пригласительные на игру Razumboy 🎟\n\n"
             "Наш менеджер свяжется с вами в ближайшее время."

@@ -393,6 +393,10 @@ def _format_admin_winner_list(responses, reminder_date: str) -> str:
 
 async def send_friday_winner_reminders(bot, db, admin_ids: list):
     """Рассылка победителям Рандомбой за последние 5 дней — каждый четверг в 21:10."""
+    settings = db.get_giveaway_settings()
+    if not settings or not settings["active"]:
+        logger.info("send_friday_winner_reminders: giveaway inactive, skipping")
+        return
     winners = db.get_giveaway_winners_since(days=5)
     if not winners:
         logger.info("send_friday_winner_reminders: победителей за 5 дней нет")

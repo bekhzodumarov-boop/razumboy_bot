@@ -82,6 +82,7 @@ def location_choice_kb():
             [KeyboardButton(text="WOW BAR, ул. Матбуотчилар, 17")],
             [KeyboardButton(text="ПОНАЕХАЛИ рестопаб, ул. Матбуотчилар, 17")],
             [KeyboardButton(text="Greenwich Pub, ул. Абдурауф Фитрат, 159")],
+            [KeyboardButton(text="Zafferano, ул. Эски-Сарикул, 16А")],
             [KeyboardButton(text="✏️ Другое место")],
         ],
         resize_keyboard=True, one_time_keyboard=True
@@ -179,7 +180,7 @@ async def create_event_location(message: Message, state: FSMContext):
     await message.answer(
         "Введите ссылку на локацию в Яндекс.Картах.\n"
         "Если ссылки нет — напишите: -\n\n"
-        "Пример: https://yandex.uz/maps/-/CPV6eOpR"
+        "Пример (Zafferano): https://yandex.uz/maps/-/CHr3iU-1"
     )
 
 

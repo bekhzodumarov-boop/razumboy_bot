@@ -13,6 +13,12 @@ router = Router()
 PHONE_RE = re.compile(r"^\+998\d{9}$")
 
 
+def _team_name_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="👤 Я без команды", callback_data="reg_no_team")
+    ]])
+
+
 @router.message(F.text == "📝 Регистрация")
 async def start_registration(message: Message, state: FSMContext, db):
     events = db.get_open_events()
@@ -20,7 +26,7 @@ async def start_registration(message: Message, state: FSMContext, db):
         await message.answer("Сейчас нет открытых игр для регистрации.")
         return
     await state.set_state(RegistrationState.team_name)
-    await message.answer("Введите название команды:")
+    await message.answer("Введите название команды:", reply_markup=_team_name_kb())
 
 
 @router.callback_query(F.data.startswith("register_event_"))
@@ -31,10 +37,17 @@ async def register_from_event(callback: CallbackQuery, state: FSMContext, db):
         await callback.message.answer("Эта игра недоступна для регистрации.")
         await callback.answer()
         return
-    # Сразу сохраняем event_id если пришли из анонса
     await state.update_data(event_id=event_id)
     await state.set_state(RegistrationState.team_name)
-    await callback.message.answer("Введите название команды:")
+    await callback.message.answer("Введите название команды:", reply_markup=_team_name_kb())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "reg_no_team", RegistrationState.team_name)
+async def reg_no_team(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(team_name="")
+    await state.set_state(RegistrationState.team_size)
+    await callback.message.answer("Сколько вас будет? Введите число от 1 до 12.")
     await callback.answer()
 
 
@@ -42,7 +55,7 @@ async def register_from_event(callback: CallbackQuery, state: FSMContext, db):
 async def reg_team_name(message: Message, state: FSMContext):
     team_name = message.text.strip()
     if len(team_name) < 2:
-        await message.answer("Название команды слишком короткое. Введите ещё раз:")
+        await message.answer("Название команды слишком короткое. Введите ещё раз:", reply_markup=_team_name_kb())
         return
     await state.update_data(team_name=team_name)
     await state.set_state(RegistrationState.team_size)
@@ -161,12 +174,10 @@ async def reg_pick_event(callback: CallbackQuery, state: FSMContext, db):
 
 
 async def _show_summary(message, state, data):
-    from handlers.common import format_date_short
-    from database import Database
-    # Получаем название игры для отображения
+    team_display = data['team_name'] if data['team_name'] else "Без команды"
     summary = (
         "<b>Проверьте заявку:</b>\n\n"
-        f"🏷 Команда: {data['team_name']}\n"
+        f"🏷 Команда: {team_display}\n"
         f"👥 Игроков: {data['team_size']}\n"
         f"👤 Капитан: {data['captain_name']}\n"
         f"📞 Телефон: {data['phone']}\n"
@@ -185,7 +196,7 @@ async def edit_registration(callback: CallbackQuery, state: FSMContext):
     if event_id:
         await state.update_data(event_id=event_id)
     await state.set_state(RegistrationState.team_name)
-    await callback.message.answer("Заполним заново. Введите название команды:")
+    await callback.message.answer("Заполним заново. Введите название команды:", reply_markup=_team_name_kb())
     await callback.answer()
 
 
@@ -234,10 +245,11 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext, db, b
         f"Ждём вас! 🧠"
     )
 
+    team_display = data['team_name'] if data['team_name'] else "Без команды"
     admin_text = (
         "🆕 <b>Новая регистрация</b>\n\n"
         f"Игра: {event['title']} ({date_short})\n"
-        f"Команда: {data['team_name']}\n"
+        f"Команда: {team_display}\n"
         f"Игроков: {data['team_size']}\n"
         f"Капитан: {data['captain_name']}\n"
         f"Телефон: {data['phone']}\n"

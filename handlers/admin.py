@@ -379,10 +379,13 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
     active = [r for r in registrations if r["status"] == "confirmed"]
     cancelled = [r for r in registrations if r["status"] == "cancelled"]
 
+    teams = [r for r in active if r["team_name"]]
+    solos = [r for r in active if not r["team_name"]]
+
     lines = [f"<b>Заявки на «{event['title']}»</b>\n📅 {date_ru}:\n"]
 
     total_players = 0
-    for i, r in enumerate(active, 1):
+    for i, r in enumerate(teams, 1):
         if r["confirmed_count"] is not None:
             icon = "✅"
             count = r["confirmed_count"]
@@ -392,25 +395,39 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
         total_players += count
         lines.append(f"{icon}{i}. {r['team_name']} {count} {r['captain_name']} {r['phone']}")
 
+    if solos:
+        lines.append(f"\n<b>👤 Игроки без команд:</b>")
+        for i, r in enumerate(solos, 1):
+            if r["confirmed_count"] is not None:
+                icon = "✅"
+                count = r["confirmed_count"]
+            else:
+                icon = "⏳"
+                count = r["team_size"]
+            total_players += count
+            lines.append(f"{icon}{i}. {r['captain_name']} — {count} чел. {r['phone']}")
+
     lines.append(f"\n<b>Итого: {total_players}</b>")
 
     if cancelled:
         lines.append("\n<b>Отменили регистрацию:</b>")
         for i, r in enumerate(cancelled, 1):
-            lines.append(f"{i}. {r['team_name']} {r['team_size']} {r['captain_name']} {r['phone']}")
+            label = r['team_name'] if r['team_name'] else f"Без команды ({r['captain_name']})"
+            lines.append(f"{i}. {label} {r['team_size']} {r['captain_name']} {r['phone']}")
 
     await callback.message.answer("\n".join(lines))
 
-    # Кнопки отмены для активных команд
+    # Кнопки отмены для активных
     if active:
         cancel_buttons = []
         for r in active:
+            label = r['team_name'] if r['team_name'] else f"Без команды ({r['captain_name']})"
             cancel_buttons.append([InlineKeyboardButton(
-                text=f"🗑 Отменить: {r['team_name']}",
+                text=f"🗑 Отменить: {label}",
                 callback_data=f"admin_pre_cancel_{r['id']}"
             )])
         kb = InlineKeyboardMarkup(inline_keyboard=cancel_buttons)
-        await callback.message.answer("Отменить регистрацию команды:", reply_markup=kb)
+        await callback.message.answer("Отменить регистрацию:", reply_markup=kb)
 
     await callback.answer()
 

@@ -7,7 +7,7 @@ from config import load_config
 from database import Database
 from handlers import common_router, registration_router, admin_router, user_router, giveaway_router
 from handlers.giveaway import check_giveaway_schedule, send_friday_winner_reminders
-from handlers.admin import auto_remind_day_before, auto_remind_day_of
+from handlers.admin import auto_remind_day_before, auto_remind_day_of, auto_remind_day_of_followup
 from utils import sync_templates_to_db
 
 # Включаем логирование всех ошибок
@@ -74,6 +74,15 @@ async def main():
         minute=0,
         args=[bot, db, config.admin_ids],
     )
+    # Повторные напоминания тем, кто не ответил — 12:00, 15:00, 17:00
+    for _hour in (12, 15, 17):
+        scheduler.add_job(
+            auto_remind_day_of_followup,
+            trigger="cron",
+            hour=_hour,
+            minute=0,
+            args=[bot, db, config.admin_ids, _hour],
+        )
     scheduler.start()
     logger.info("APScheduler запущен — проверка расписания розыгрыша каждую минуту")
 

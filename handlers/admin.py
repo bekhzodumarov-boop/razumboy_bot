@@ -800,6 +800,20 @@ def _reply_confirm_kb(registration_id):
     ])
 
 
+def _game_day_confirm_kb(registration_id):
+    """Keyboard for auto game-day reminders — decline saves 'declined' without cancelling registration."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="✅ Подтвердить участие",
+            callback_data=f"confirm_players_{registration_id}"
+        )],
+        [InlineKeyboardButton(
+            text="❌ Не придём",
+            callback_data=f"decline_players_{registration_id}"
+        )],
+    ])
+
+
 # ── Подписчики (список + CSV) ─────────────────────────────────
 
 @router.message(F.text == "👥 Подписчики")
@@ -2237,7 +2251,11 @@ async def auto_remind_day_of(bot, db, admin_ids: list):
                 time=event["event_time"],
             )
             try:
-                await bot.send_message(reg["telegram_id"], text)
+                await bot.send_message(
+                    reg["telegram_id"],
+                    text,
+                    reply_markup=_game_day_confirm_kb(reg["id"])
+                )
                 sent += 1
             except Exception:
                 pass
@@ -2266,6 +2284,79 @@ async def auto_remind_day_of(bot, db, admin_ids: list):
                 )
             except Exception:
                 pass
+
+
+async def auto_remind_day_of_followup(bot, db, admin_ids: list, reminder_hour: int):
+    """Повторное напоминание в 12, 15, 17 — только тем, кто ещё не ответил."""
+    import datetime
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    events = db.get_events_by_date(today)
+    if not events:
+        return
+
+    if reminder_hour == 12:
+        header = (
+            "👋 Напоминаем ещё раз!\n\n"
+            "Утром в 10:00 мы уже писали вам с просьбой подтвердить участие.\n\n"
+        )
+    elif reminder_hour == 15:
+        header = (
+            "⏰ Мы снова пишем!\n\n"
+            "Сегодня мы уже писали вам в 10:00 и в 12:00. "
+            "Пожалуйста, не оставляйте нас без ответа — нам важно знать, сколько игроков ждать.\n\n"
+        )
+    else:
+        header = (
+            "🚨 Последнее напоминание!\n\n"
+            "Мы писали вам в 10:00, 12:00 и 15:00. "
+            "Если вы не придёте, пожалуйста, сообщите нам об этом прямо сейчас — "
+            "мы освободим места для других игроков.\n\n"
+        )
+
+    for event in events:
+        registrations = db.get_registrations_for_event(event["id"])
+        if not registrations:
+            continue
+
+        location_line = event["location"]
+        if event["location_url"]:
+            location_line += f"\n🗺 {event['location_url']}"
+
+        sent = 0
+        for reg in registrations:
+            if db.get_confirmation(reg["id"]) is not None:
+                continue
+
+            team_label = reg["team_name"] if reg["team_name"] else "вашей команды"
+            text = (
+                f"{header}"
+                f"Подтвердите участие <b>{team_label}</b> "
+                f"в игре <b>{event['title']}</b> сегодня вечером.\n\n"
+                f"📍 {location_line}\n"
+                f"⏰ {event['event_time']}\n\n"
+                f"Зарегистрировано: {reg['team_size']} чел."
+            )
+            try:
+                await bot.send_message(
+                    reg["telegram_id"],
+                    text,
+                    reply_markup=_game_day_confirm_kb(reg["id"])
+                )
+                sent += 1
+            except Exception:
+                pass
+
+        if sent:
+            for admin_id in admin_ids:
+                try:
+                    await bot.send_message(
+                        admin_id,
+                        f"🔔 <b>Напоминание {reminder_hour}:00</b> отправлено!\n"
+                        f"Игра: {event['title']}\n"
+                        f"Не ответили: {sent} команд"
+                    )
+                except Exception:
+                    pass
 
 
 # ── Шаблоны рассылок ─────────────────────────────────────────

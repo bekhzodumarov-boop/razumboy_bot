@@ -303,6 +303,41 @@ async def cancel_players(callback: CallbackQuery, db, bot, admin_ids: list[int])
             pass
 
 
+# ── Отказ от участия в день игры (из авторемайндера) ─────────
+
+@router.callback_query(F.data.startswith("decline_players_"))
+async def decline_players(callback: CallbackQuery, db, bot, admin_ids: list[int]):
+    registration_id = int(callback.data.split("_")[-1])
+    reg = db.get_registration_by_id(registration_id)
+    if not reg:
+        await callback.answer("Регистрация не найдена.", show_alert=True)
+        return
+
+    db.save_confirmation(
+        registration_id=registration_id,
+        confirmed_count=0,
+        player_names="declined",
+    )
+
+    await callback.message.answer(
+        "Жаль, что не сможете прийти на игру. Ждём вас на следующей неделе! 👋"
+    )
+    await callback.answer()
+
+    team_label = reg["team_name"] if reg["team_name"] else "Без команды"
+    admin_text = (
+        f"❌ <b>Команда не придёт сегодня</b>\n\n"
+        f"Команда: <b>{team_label}</b> ({reg['team_size']} чел.)\n"
+        f"Капитан: {reg['captain_name']} | {reg['phone']}\n"
+        f"User: @{callback.from_user.username or 'без username'} ({callback.from_user.id})"
+    )
+    for admin_id in admin_ids:
+        try:
+            await bot.send_message(admin_id, admin_text)
+        except Exception:
+            pass
+
+
 # ── Редактирование количества игроков ─────────────────────────
 
 @router.callback_query(F.data.startswith("edit_team_size_"))

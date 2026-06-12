@@ -417,18 +417,74 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
 
     await callback.message.answer("\n".join(lines))
 
-    # Кнопки отмены для активных
+    # Кнопки отмены для активных + список для ресторана
+    action_buttons = [[InlineKeyboardButton(
+        text="🍽 Список для ресторана",
+        callback_data=f"restaurant_list_{event_id}"
+    )]]
     if active:
-        cancel_buttons = []
         for r in active:
             label = r['team_name'] if r['team_name'] else f"Без команды ({r['captain_name']})"
-            cancel_buttons.append([InlineKeyboardButton(
+            action_buttons.append([InlineKeyboardButton(
                 text=f"🗑 Отменить: {label}",
                 callback_data=f"admin_pre_cancel_{r['id']}"
             )])
-        kb = InlineKeyboardMarkup(inline_keyboard=cancel_buttons)
-        await callback.message.answer("Отменить регистрацию:", reply_markup=kb)
+    kb = InlineKeyboardMarkup(inline_keyboard=action_buttons)
+    await callback.message.answer("Действия:", reply_markup=kb)
 
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("restaurant_list_"))
+async def restaurant_list(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    event_id = int(callback.data.split("_")[-1])
+    event = db.get_event_by_id(event_id)
+    if not event:
+        await callback.answer("Игра не найдена.", show_alert=True)
+        return
+
+    registrations = db.get_registrations_for_event_full(event_id)
+    active = [r for r in registrations if r["status"] == "confirmed"]
+
+    if not active:
+        await callback.answer("Нет активных заявок.", show_alert=True)
+        return
+
+    date_ru = format_date_ru(event["event_date"])
+    location = event["location"] or ""
+
+    lines = [
+        f"<b>{event['title']}</b>",
+        f"📅 {date_ru}",
+    ]
+    if location:
+        lines.append(f"📍 {location}")
+    lines.append("")
+
+    teams = [r for r in active if r["team_name"]]
+    solos = [r for r in active if not r["team_name"]]
+
+    total = 0
+    for i, r in enumerate(teams, 1):
+        count = r["confirmed_count"] if r["confirmed_count"] is not None else r["team_size"]
+        total += count
+        lines.append(f"{i}. {r['team_name']} — {count} чел.")
+
+    if solos:
+        lines.append("")
+        lines.append("<b>Без команды:</b>")
+        for r in solos:
+            count = r["confirmed_count"] if r["confirmed_count"] is not None else r["team_size"]
+            total += count
+            lines.append(f"• {count} чел.")
+
+    lines.append("")
+    lines.append(f"<b>Итого: {total} человек</b>")
+
+    await callback.message.answer("\n".join(lines))
     await callback.answer()
 
 

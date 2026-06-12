@@ -469,17 +469,21 @@ async def restaurant_list(callback: CallbackQuery, db, admin_ids: list[int]):
 
     total = 0
     for i, r in enumerate(teams, 1):
-        count = r["confirmed_count"] if r["confirmed_count"] is not None else r["team_size"]
+        confirmed = r["confirmed_count"] is not None
+        icon = "✅" if confirmed else "⏳"
+        count = r["confirmed_count"] if confirmed else r["team_size"]
         total += count
-        lines.append(f"{i}. {r['team_name']} — {count} чел.")
+        lines.append(f"{icon}{i}. {r['team_name']} — {count} чел.")
 
     if solos:
         lines.append("")
         lines.append("<b>Без команды:</b>")
         for r in solos:
-            count = r["confirmed_count"] if r["confirmed_count"] is not None else r["team_size"]
+            confirmed = r["confirmed_count"] is not None
+            icon = "✅" if confirmed else "⏳"
+            count = r["confirmed_count"] if confirmed else r["team_size"]
             total += count
-            lines.append(f"• {count} чел.")
+            lines.append(f"{icon} {count} чел.")
 
     lines.append("")
     lines.append(f"<b>Итого: {total} человек</b>")

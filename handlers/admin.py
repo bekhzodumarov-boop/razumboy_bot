@@ -414,17 +414,14 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
 
     lines.append(f"\n<b>Итого: {total_players}</b>")
 
-    if declined_teams or declined_solos:
-        lines.append("\n<b>Не придут сегодня:</b>")
-        for i, r in enumerate(declined_teams, 1):
-            lines.append(f"{i}. {r['team_name']} {r['team_size']} {r['captain_name']} {r['phone']}")
-        for i, r in enumerate(declined_solos, 1):
-            lines.append(f"{i}. Без команды {r['team_size']} {r['captain_name']} {r['phone']}")
-
-    if cancelled:
+    not_coming = (
+        [(r['team_name'], r) for r in declined_teams] +
+        [("Без команды", r) for r in declined_solos] +
+        [(r['team_name'] if r['team_name'] else "Без команды", r) for r in cancelled]
+    )
+    if not_coming:
         lines.append("\n<b>Отменили регистрацию:</b>")
-        for i, r in enumerate(cancelled, 1):
-            label = r['team_name'] if r['team_name'] else f"Без команды ({r['captain_name']})"
+        for i, (label, r) in enumerate(not_coming, 1):
             lines.append(f"{i}. {label} {r['team_size']} {r['captain_name']} {r['phone']}")
 
     await callback.message.answer("\n".join(lines))
@@ -510,7 +507,7 @@ async def restaurant_list(callback: CallbackQuery, db, admin_ids: list[int]):
 
     if declined_teams or declined_solos:
         lines.append("")
-        lines.append("<b>Не придут сегодня:</b>")
+        lines.append("<b>Отменили регистрацию:</b>")
         for r in declined_teams:
             lines.append(f"• {r['team_name']} ({r['team_size']} чел.)")
         for r in declined_solos:

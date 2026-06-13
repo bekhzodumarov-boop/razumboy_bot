@@ -464,8 +464,16 @@ async def restaurant_list(callback: CallbackQuery, db, admin_ids: list[int]):
         lines.append(f"📍 {location}")
     lines.append("")
 
-    teams = [r for r in active if r["team_name"]]
-    solos = [r for r in active if not r["team_name"]]
+    all_teams = [r for r in active if r["team_name"]]
+    all_solos = [r for r in active if not r["team_name"]]
+
+    def _is_declined(r):
+        return r["player_names"] == "declined"
+
+    teams = [r for r in all_teams if not _is_declined(r)]
+    declined_teams = [r for r in all_teams if _is_declined(r)]
+    solos = [r for r in all_solos if not _is_declined(r)]
+    declined_solos = [r for r in all_solos if _is_declined(r)]
 
     total = 0
     for i, r in enumerate(teams, 1):
@@ -487,6 +495,14 @@ async def restaurant_list(callback: CallbackQuery, db, admin_ids: list[int]):
 
     lines.append("")
     lines.append(f"<b>Итого: {total} человек</b>")
+
+    if declined_teams or declined_solos:
+        lines.append("")
+        lines.append("<b>Не придут сегодня:</b>")
+        for r in declined_teams:
+            lines.append(f"• {r['team_name']} ({r['team_size']} чел.)")
+        for r in declined_solos:
+            lines.append(f"• Без команды ({r['team_size']} чел.)")
 
     await callback.message.answer("\n".join(lines))
     await callback.answer()

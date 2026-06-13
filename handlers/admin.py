@@ -379,8 +379,13 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
     active = [r for r in registrations if r["status"] == "confirmed"]
     cancelled = [r for r in registrations if r["status"] == "cancelled"]
 
-    teams = [r for r in active if r["team_name"]]
-    solos = [r for r in active if not r["team_name"]]
+    def _is_declined(r):
+        return r["player_names"] == "declined"
+
+    teams = [r for r in active if r["team_name"] and not _is_declined(r)]
+    declined_teams = [r for r in active if r["team_name"] and _is_declined(r)]
+    solos = [r for r in active if not r["team_name"] and not _is_declined(r)]
+    declined_solos = [r for r in active if not r["team_name"] and _is_declined(r)]
 
     lines = [f"<b>Заявки на «{event['title']}»</b>\n📅 {date_ru}:\n"]
 
@@ -408,6 +413,13 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
             lines.append(f"{icon}{i}. {r['captain_name']} — {count} чел. {r['phone']}")
 
     lines.append(f"\n<b>Итого: {total_players}</b>")
+
+    if declined_teams or declined_solos:
+        lines.append("\n<b>Не придут сегодня:</b>")
+        for i, r in enumerate(declined_teams, 1):
+            lines.append(f"{i}. {r['team_name']} {r['team_size']} {r['captain_name']} {r['phone']}")
+        for i, r in enumerate(declined_solos, 1):
+            lines.append(f"{i}. Без команды {r['team_size']} {r['captain_name']} {r['phone']}")
 
     if cancelled:
         lines.append("\n<b>Отменили регистрацию:</b>")

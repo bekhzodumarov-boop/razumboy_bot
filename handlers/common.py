@@ -301,7 +301,7 @@ async def back_to_events_list(callback: CallbackQuery, db):
 # ── Пункт 8: Фотографии с игр — список альбомов ──────────────
 @router.message(F.text == "📸 Фотографии с игр")
 async def photos(message: Message, db):
-    albums = db.get_photo_albums()
+    albums = db.get_photo_albums(limit=10)
     if not albums:
         await message.answer("📸 Фотографий пока нет. Скоро добавим! 🎉")
         return

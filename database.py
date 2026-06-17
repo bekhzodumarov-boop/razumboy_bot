@@ -943,11 +943,12 @@ class Database:
 
     # ── Фотоальбомы ───────────────────────────────────────────
 
-    def get_photo_albums(self) -> list:
+    def get_photo_albums(self, limit: int = None) -> list:
         with self._connect() as conn:
-            return conn.execute(
-                "SELECT * FROM photo_albums ORDER BY created_at DESC"
-            ).fetchall()
+            sql = "SELECT * FROM photo_albums ORDER BY created_at DESC"
+            if limit:
+                sql += f" LIMIT {limit}"
+            return conn.execute(sql).fetchall()
 
     def add_photo_album(self, title: str, url: str) -> int:
         with self._connect() as conn:

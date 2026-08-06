@@ -18,13 +18,8 @@ def _cancel_kb():
     return InlineKeyboardMarkup(inline_keyboard=[[CANCEL_BTN]])
 
 
-def _team_name_kb(prev_name: str = None, has_prev: bool = False):
+def _team_name_kb(prev_name: str = None):
     buttons = []
-    if has_prev:
-        buttons.append([InlineKeyboardButton(
-            text="⚡️ Как в прошлый раз (всё)",
-            callback_data="reg_use_all_prev"
-        )])
     if prev_name:
         buttons.append([InlineKeyboardButton(
             text=f"📋 {prev_name}",
@@ -94,7 +89,7 @@ async def start_registration(message: Message, state: FSMContext, db):
     prev_name = prev["team_name"] if prev and prev["team_name"] else None
     await message.answer(
         "Введите название команды:" + _prev_hint(prev_name),
-        reply_markup=_team_name_kb(prev_name, has_prev=bool(prev and prev["team_name"]))
+        reply_markup=_team_name_kb(prev_name)
     )
 
 
@@ -112,42 +107,8 @@ async def register_from_event(callback: CallbackQuery, state: FSMContext, db):
     prev_name = prev["team_name"] if prev and prev["team_name"] else None
     await callback.message.answer(
         "Введите название команды:" + _prev_hint(prev_name),
-        reply_markup=_team_name_kb(prev_name, has_prev=bool(prev and prev["team_name"]))
+        reply_markup=_team_name_kb(prev_name)
     )
-    await callback.answer()
-
-
-# ── «Как в прошлый раз» — заполнить всё сразу ─────────────────
-
-@router.callback_query(F.data == "reg_use_all_prev", RegistrationState.team_name)
-async def reg_use_all_prev(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    prev_team = data.get("prev_team", "")
-    prev_size = data.get("prev_size")
-    prev_captain = data.get("prev_captain", "")
-    prev_phone = data.get("prev_phone", "")
-    prev_comment = data.get("prev_comment", "")
-
-    await state.update_data(
-        team_name=prev_team,
-        team_size=prev_size,
-        captain_name=prev_captain,
-        phone=prev_phone,
-        comment=prev_comment,
-    )
-
-    team_display = prev_team if prev_team else "Без команды"
-    summary_preview = (
-        f"Заполняем как в прошлый раз:\n\n"
-        f"🏷 Команда: {team_display}\n"
-        f"👥 Игроков: {prev_size}\n"
-        f"👤 Капитан: {prev_captain}\n"
-        f"📞 Телефон: {prev_phone}\n"
-        f"💬 Комментарий: {prev_comment or 'нет'}"
-    )
-    await state.set_state(RegistrationState.confirm)
-    await callback.message.answer(summary_preview)
-    await _show_summary(callback.message, state, await state.get_data())
     await callback.answer()
 
 

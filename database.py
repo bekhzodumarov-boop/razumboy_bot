@@ -710,7 +710,7 @@ class Database:
         """Последняя регистрация пользователя (любой статус) — для подстановки прошлых данных."""
         with self._connect() as conn:
             cur = conn.execute("""
-                SELECT r.team_name, r.captain_name, r.phone
+                SELECT r.team_name, r.team_size, r.captain_name, r.phone, r.comment
                 FROM registrations r
                 JOIN users u ON r.user_id = u.id
                 WHERE u.telegram_id = ?

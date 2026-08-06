@@ -194,11 +194,12 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
     else:
         congrats_text = congrats_template + "\n\n" + " и ".join(winner_mentions)
 
-    # Рассылаем всем подписчикам
-    subscribers = db.get_subscribers()
-    for user in subscribers:
+    # Рассылаем только участникам (тем, кто нажал «Принять участие»)
+    sent_count = 0
+    for user in participants:
         try:
             await bot.send_message(user["telegram_id"], congrats_text)
+            sent_count += 1
         except Exception:
             pass
 
@@ -216,9 +217,9 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
 
     db.update_session_status(session_id, "done")
     db.save_broadcast(
-        None, congrats_text, len(subscribers),
+        None, congrats_text, sent_count,
         broadcast_type="auto",
-        recipients_info=f"Все подписчики (Рандомбой — результаты жеребьёвки 21:00, победители: {', '.join(winner_mentions)})"
+        recipients_info=f"Участники Рандомбоя (результаты жеребьёвки 21:00, победители: {', '.join(winner_mentions)})"
     )
 
     # Статистика для админов

@@ -854,8 +854,6 @@ async def _do_broadcast(message, db, bot, event, text):
     for user in subscribers:
         try:
             if event["photo_file_id"]:
-                # Telegram ограничивает caption до 1024 символов
-                # Если текст длиннее — отправляем фото отдельно, текст отдельно
                 if len(text) <= 1024:
                     await bot.send_photo(user["telegram_id"], photo=event["photo_file_id"], caption=text)
                 else:
@@ -864,6 +862,12 @@ async def _do_broadcast(message, db, bot, event, text):
             else:
                 await bot.send_message(user["telegram_id"], text)
             sent_count += 1
+            # Если уже зарегистрированы на эту игру — сообщаем об этом
+            if db.has_active_registration_by_telegram(user["telegram_id"], event["id"]):
+                await bot.send_message(
+                    user["telegram_id"],
+                    "Кстати, ваша команда уже зарегистрировалась! До встречи на игре! 🎉"
+                )
         except Exception as e:
             errors.append(f"{user['telegram_id']}: {e}")
     db.save_broadcast(event["id"], text, sent_count, broadcast_type="manual", recipients_info="Все подписчики")

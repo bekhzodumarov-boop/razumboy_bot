@@ -18,11 +18,27 @@ def _cancel_kb():
     return InlineKeyboardMarkup(inline_keyboard=[[CANCEL_BTN]])
 
 
-def _team_name_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Я без команды", callback_data="reg_no_team")],
-        [CANCEL_BTN],
-    ])
+def _team_name_kb(prev_name: str = None):
+    buttons = []
+    if prev_name:
+        buttons.append([InlineKeyboardButton(
+            text=f"📋 {prev_name}",
+            callback_data="reg_use_prev_team"
+        )])
+    buttons.append([InlineKeyboardButton(text="👤 Я без команды", callback_data="reg_no_team")])
+    buttons.append([CANCEL_BTN])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _phone_kb(prev_phone: str = None):
+    buttons = []
+    if prev_phone:
+        buttons.append([InlineKeyboardButton(
+            text=f"📞 {prev_phone}",
+            callback_data="reg_use_prev_phone"
+        )])
+    buttons.append([CANCEL_BTN])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # ── Отмена из любого шага ──────────────────────────────────────
@@ -39,14 +55,25 @@ async def reg_cancel(callback: CallbackQuery, state: FSMContext, admin_ids: list
 
 # ── Старт регистрации ──────────────────────────────────────────
 
+def _prev_hint(prev) -> str:
+    return "\n<i>Или выберите данные с прошлого раза:</i>" if prev else ""
+
+
 @router.message(F.text == "📝 Регистрация")
 async def start_registration(message: Message, state: FSMContext, db):
     events = db.get_open_events()
     if not events:
         await message.answer("Сейчас нет открытых игр для регистрации.")
         return
+    prev = db.get_last_registration_by_telegram(message.from_user.id)
+    prev_name = prev["team_name"] if prev and prev["team_name"] else None
+    if prev:
+        await state.update_data(prev_phone=prev["phone"])
     await state.set_state(RegistrationState.team_name)
-    await message.answer("Введите название команды:", reply_markup=_team_name_kb())
+    await message.answer(
+        "Введите название команды:" + _prev_hint(prev_name),
+        reply_markup=_team_name_kb(prev_name)
+    )
 
 
 @router.callback_query(F.data.startswith("register_event_"))
@@ -57,9 +84,34 @@ async def register_from_event(callback: CallbackQuery, state: FSMContext, db):
         await callback.message.answer("Эта игра недоступна для регистрации.")
         await callback.answer()
         return
-    await state.update_data(event_id=event_id)
+    prev = db.get_last_registration_by_telegram(callback.from_user.id)
+    prev_name = prev["team_name"] if prev and prev["team_name"] else None
+    if prev:
+        await state.update_data(event_id=event_id, prev_phone=prev["phone"])
+    else:
+        await state.update_data(event_id=event_id)
     await state.set_state(RegistrationState.team_name)
-    await callback.message.answer("Введите название команды:", reply_markup=_team_name_kb())
+    await callback.message.answer(
+        "Введите название команды:" + _prev_hint(prev_name),
+        reply_markup=_team_name_kb(prev_name)
+    )
+    await callback.answer()
+
+
+# ── Использовать прошлое название команды ─────────────────────
+
+@router.callback_query(F.data == "reg_use_prev_team", RegistrationState.team_name)
+async def reg_use_prev_team(callback: CallbackQuery, state: FSMContext, db):
+    prev = db.get_last_registration_by_telegram(callback.from_user.id)
+    if not prev or not prev["team_name"]:
+        await callback.answer("Прошлые данные не найдены.", show_alert=True)
+        return
+    await state.update_data(team_name=prev["team_name"])
+    await state.set_state(RegistrationState.team_size)
+    await callback.message.answer(
+        f"Команда: <b>{prev['team_name']}</b> ✅\n\nСколько будет игроков? Введите число от 1 до 12.",
+        reply_markup=_cancel_kb()
+    )
     await callback.answer()
 
 
@@ -116,13 +168,35 @@ async def reg_captain_name(message: Message, state: FSMContext):
         await message.answer("Слишком короткое имя. Введите ещё раз:", reply_markup=_cancel_kb())
         return
     await state.update_data(captain_name=captain_name)
+    data = await state.get_data()
+    prev_phone = data.get("prev_phone")
     await state.set_state(RegistrationState.phone)
     await message.answer(
         "Укажите номер телефона капитана.\n"
-        "Нажмите кнопку ниже или введите вручную в формате <b>+998XXXXXXXXX</b>:",
+        "Нажмите кнопку ниже или введите вручную в формате <b>+998XXXXXXXXX</b>:" + _prev_hint(prev_phone),
         reply_markup=phone_request_kb()
     )
-    await message.answer("Или отмените регистрацию:", reply_markup=_cancel_kb())
+    await message.answer("Или выберите:", reply_markup=_phone_kb(prev_phone))
+
+
+# ── Использовать прошлый телефон ──────────────────────────────
+
+@router.callback_query(F.data == "reg_use_prev_phone", RegistrationState.phone)
+async def reg_use_prev_phone(callback: CallbackQuery, state: FSMContext, admin_ids: list[int]):
+    data = await state.get_data()
+    prev_phone = data.get("prev_phone")
+    if not prev_phone:
+        await callback.answer("Прошлые данные не найдены.", show_alert=True)
+        return
+    await state.update_data(phone=prev_phone)
+    await state.set_state(RegistrationState.comment)
+    await callback.message.answer(
+        f"Телефон: <b>{prev_phone}</b> ✅\n\n"
+        "Комментарий к заявке (необязательно). Если нет — напишите: <b>-</b>",
+        reply_markup=main_menu(callback.from_user.id in admin_ids)
+    )
+    await callback.message.answer("Или отмените регистрацию:", reply_markup=_cancel_kb())
+    await callback.answer()
 
 
 # ── Шаг 4: телефон ─────────────────────────────────────────────

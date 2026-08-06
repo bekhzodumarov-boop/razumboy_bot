@@ -695,6 +695,30 @@ class Database:
             """, (user_id, today))
             return cur.fetchall()
 
+    def has_active_registration_by_telegram(self, telegram_id: int, event_id: int) -> bool:
+        """Есть ли у пользователя активная регистрация на конкретную игру (по telegram_id)."""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT r.id FROM registrations r
+                JOIN users u ON r.user_id = u.id
+                WHERE u.telegram_id = ? AND r.event_id = ? AND r.status = 'confirmed'
+                LIMIT 1
+            """, (telegram_id, event_id))
+            return cur.fetchone() is not None
+
+    def get_last_registration_by_telegram(self, telegram_id: int) -> Optional[sqlite3.Row]:
+        """Последняя регистрация пользователя (любой статус) — для подстановки прошлых данных."""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT r.team_name, r.captain_name, r.phone
+                FROM registrations r
+                JOIN users u ON r.user_id = u.id
+                WHERE u.telegram_id = ?
+                ORDER BY r.created_at DESC
+                LIMIT 1
+            """, (telegram_id,))
+            return cur.fetchone()
+
     def get_registration_by_id(self, reg_id) -> Optional[sqlite3.Row]:
         with self._connect() as conn:
             cur = conn.execute("""

@@ -818,7 +818,7 @@ class Database:
 
     def update_event_field(self, event_id: int, field: str, value):
         """Обновить одно поле игры"""
-        allowed = {"title", "description", "event_date", "event_time", "location", "location_url", "price_text"}
+        allowed = {"title", "description", "event_date", "event_time", "location", "location_url", "price_text", "photo_file_id"}
         if field not in allowed:
             return
         with self._connect() as conn:

@@ -279,6 +279,7 @@ async def edit_event_choose_field(callback: CallbackQuery, state: FSMContext, db
         [InlineKeyboardButton(text="📍 Место", callback_data="edit_field_location")],
         [InlineKeyboardButton(text="🔗 Ссылка на карту", callback_data="edit_field_location_url")],
         [InlineKeyboardButton(text="💰 Цена", callback_data="edit_field_price_text")],
+        [InlineKeyboardButton(text="🖼 Фото", callback_data="edit_field_photo_file_id")],
         [InlineKeyboardButton(text="🔙 Назад к списку игр", callback_data="back_to_events_admin")],
     ])
     await callback.message.answer(
@@ -309,10 +310,16 @@ async def edit_event_enter_value(callback: CallbackQuery, state: FSMContext):
         "location": "место проведения",
         "location_url": "ссылку на карту (или - если убрать)",
         "price_text": "стоимость",
+        "photo_file_id": "фото",
     }
     await state.update_data(edit_field=field)
     await state.set_state(AdminEditEventState.enter_value)
-    await callback.message.answer(f"Введите новое {field_names.get(field, field)}:")
+    if field == "photo_file_id":
+        await callback.message.answer(
+            "Отправьте новое фото для анонса.\nЧтобы убрать фото — напишите: <b>-</b>"
+        )
+    else:
+        await callback.message.answer(f"Введите новое {field_names.get(field, field)}:")
     await callback.answer()
 
 
@@ -321,9 +328,19 @@ async def edit_event_save(message: Message, state: FSMContext, db):
     data = await state.get_data()
     event_id = data["edit_event_id"]
     field = data["edit_field"]
-    value = message.text.strip()
-    if field == "location_url" and value == "-":
-        value = None
+
+    if field == "photo_file_id":
+        if message.photo:
+            value = message.photo[-1].file_id
+        elif message.text and message.text.strip() == "-":
+            value = None
+        else:
+            await message.answer("Пожалуйста, отправьте фото или напишите <b>-</b> чтобы убрать.")
+            return
+    else:
+        value = message.text.strip()
+        if field == "location_url" and value == "-":
+            value = None
     db.update_event_field(event_id, field, value)
     event = db.get_event_by_id(event_id)
     await state.clear()

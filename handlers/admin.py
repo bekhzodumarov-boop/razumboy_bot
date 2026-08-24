@@ -327,13 +327,75 @@ async def edit_event_save(message: Message, state: FSMContext, db):
     db.update_event_field(event_id, field, value)
     event = db.get_event_by_id(event_id)
     await state.clear()
-    await message.answer(
-        f"✅ Поле обновлено!\n\n"
-        f"<b>{event['title']}</b>\n"
-        f"📅 {format_date_ru(event['event_date'])}, {event['event_time']}\n"
-        f"📍 {event['location']}",
+
+    notify_fields = {"event_date", "event_time", "location", "location_url"}
+    if field in notify_fields:
+        notify_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="📢 Уведомить зарегистрированных об изменении",
+                callback_data=f"notify_event_change_{event_id}"
+            )
+        ]])
+        await message.answer(
+            f"✅ Поле обновлено!\n\n"
+            f"<b>{event['title']}</b>\n"
+            f"📅 {format_date_ru(event['event_date'])}, {event['event_time']}\n"
+            f"📍 {event['location']}",
+            reply_markup=notify_kb
+        )
+    else:
+        await message.answer(
+            f"✅ Поле обновлено!\n\n"
+            f"<b>{event['title']}</b>\n"
+            f"📅 {format_date_ru(event['event_date'])}, {event['event_time']}\n"
+            f"📍 {event['location']}",
+            reply_markup=admin_menu()
+        )
+
+
+@router.callback_query(F.data.startswith("notify_event_change_"))
+async def notify_event_change(callback: CallbackQuery, db, bot, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+
+    event_id = int(callback.data.split("_")[-1])
+    event = db.get_event_by_id(event_id)
+    if not event:
+        await callback.answer("Игра не найдена.", show_alert=True)
+        return
+
+    registrations = db.get_registrations_for_event(event_id)
+    if not registrations:
+        await callback.answer("Нет зарегистрированных команд.", show_alert=True)
+        return
+
+    location_line = event["location"]
+    if event["location_url"]:
+        location_line += f"\n🗺 {event['location_url']}"
+
+    text = (
+        f"⚠️ <b>Важное изменение!</b>\n\n"
+        f"Игра <b>{event['title']}</b> была обновлена.\n\n"
+        f"📅 {format_date_ru(event['event_date'])}\n"
+        f"⏰ {event['event_time']}\n"
+        f"📍 {location_line}\n\n"
+        f"Ждём вас! 🎉"
+    )
+
+    sent = 0
+    for reg in registrations:
+        try:
+            await bot.send_message(reg["telegram_id"], text)
+            sent += 1
+        except Exception:
+            pass
+
+    await callback.message.answer(
+        f"✅ Уведомление отправлено {sent} из {len(registrations)} команд.",
         reply_markup=admin_menu()
     )
+    await callback.answer()
 
 
 # ── Заявки ────────────────────────────────────────────────────

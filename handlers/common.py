@@ -4,7 +4,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton as KB
 from aiogram.fsm.context import FSMContext
-from keyboards.reply import main_menu
+from keyboards.reply import main_menu, phone_request_kb
 from states import AskQuestionState, SubscribeState
 from keyboards.inline import upcoming_event_kb
 
@@ -441,21 +441,51 @@ async def subscribe_start(message: Message, state: FSMContext, db):
 
 @router.message(SubscribeState.first_name)
 async def subscribe_first_name(message: Message, state: FSMContext):
+    if not message.text or not message.text.strip():
+        await message.answer("Введите имя текстом, пожалуйста.")
+        return
     await state.update_data(first_name=message.text.strip())
     await state.set_state(SubscribeState.phone)
     await message.answer(
-        "Введите ваш <b>номер телефона</b>:\n"
-        "Пример: <b>+998901234567</b>"
+        "Нажмите «📱 Поделиться своим номером» или введите номер вручную.\n"
+        "Пример: <b>+998901234567</b>",
+        reply_markup=phone_request_kb(),
     )
+
+
+def normalize_subscriber_phone(value: str | None) -> str | None:
+    """Normalize a country-coded Uzbekistan number without inferring ownership."""
+    import re
+    phone = re.sub(r"[\s()\-]", "", value or "")
+    if re.fullmatch(r"\+?998[0-9]{9}", phone):
+        return "+" + phone.lstrip("+")
+    return None
+
+
+@router.message(SubscribeState.phone, F.contact)
+async def subscribe_phone_contact(message: Message, state: FSMContext, db, bot, admin_ids: list[int]):
+    if message.contact.user_id != message.from_user.id:
+        await message.answer(
+            "❌ Отправьте свой контакт кнопкой «📱 Поделиться своим номером» "
+            "или введите номер вручную. Чужой контакт принять нельзя.",
+            reply_markup=phone_request_kb(),
+        )
+        return
+    await _subscribe_phone_value(message, state, db, bot, admin_ids, message.contact.phone_number)
 
 
 @router.message(SubscribeState.phone)
 async def subscribe_phone(message: Message, state: FSMContext, db, bot, admin_ids: list[int]):
-    import re
-    phone = message.text.strip().replace(" ", "").replace("-", "")
-    if not re.match(r"^\+998\d{9}$", phone):
+    await _subscribe_phone_value(message, state, db, bot, admin_ids, message.text)
+
+
+async def _subscribe_phone_value(message, state, db, bot, admin_ids, value):
+    phone = normalize_subscriber_phone(value)
+    if phone is None:
         await message.answer(
-            "❌ Неверный формат. Введите номер в формате <b>+998XXXXXXXXX</b>:"
+            "❌ Неверный формат. Укажите номер Узбекистана: <b>+998XXXXXXXXX</b> "
+            "(9 цифр после +998) или поделитесь своим контактом кнопкой ниже.",
+            reply_markup=phone_request_kb(),
         )
         return
     data = await state.get_data()

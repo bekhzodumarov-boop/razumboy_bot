@@ -32,7 +32,7 @@ def admin_menu():
 def phone_request_kb():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📱 Поделиться номером", request_contact=True)],
+            [KeyboardButton(text="📱 Поделиться своим номером", request_contact=True)],
         ],
         resize_keyboard=True,
         one_time_keyboard=True,

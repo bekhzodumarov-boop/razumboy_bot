@@ -1,7 +1,11 @@
 import asyncio
 import logging
+import os
+from analytics import Analytics
+from analytics_middleware import FunnelMiddleware
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.storage.memory import SimpleEventIsolation
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import load_config
 from database import Database
@@ -29,11 +33,16 @@ async def main():
         token=config.bot_token,
         default=DefaultBotProperties(parse_mode="HTML"),
     )
-    dp = Dispatcher()
+    dp = Dispatcher(events_isolation=SimpleEventIsolation())
 
     dp["db"] = db
     dp["admin_ids"] = config.admin_ids
     dp["bot"] = bot
+    # Separate journal: no changes to business tables or Database migrations.
+    dp["analytics"] = (Analytics(config.db_path + '.analytics.sqlite')
+                       if os.getenv('FUNNEL_ANALYTICS_ENABLED', '0') == '1' else None)
+    dp.message.middleware(FunnelMiddleware())
+    dp.callback_query.middleware(FunnelMiddleware())
 
     dp.include_router(common_router)
     dp.include_router(registration_router)

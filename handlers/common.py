@@ -126,8 +126,19 @@ async def cmd_cancel(message: Message, state: FSMContext, admin_ids: list[int]):
 
 # ── Пункт 11, 12: /start — подписка + список игр ─────────────
 @router.message(Command("start"))
-async def cmd_start(message: Message, db, admin_ids: list[int]):
+async def cmd_start(message: Message, db, admin_ids: list[int], analytics=None):
     user = message.from_user
+    parts = message.text.split() if message.text else []
+    analytics_event_id = None
+    if len(parts) > 1 and parts[1].startswith('event_'):
+        try:
+            analytics_event_id = int(parts[1].split('_')[1])
+        except (ValueError, IndexError):
+            pass
+    if analytics:
+        analytics.record('bot_started', user.id,
+                         event_id=analytics_event_id,
+                         key=f'start:{message.chat.id}:{message.message_id}')
 
     # Проверяем: новый пользователь? (до upsert_user)
     is_new_user = db.get_user_by_telegram_id(user.id) is None
@@ -225,6 +236,9 @@ async def cmd_start(message: Message, db, admin_ids: list[int]):
                         await message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
                 else:
                     await message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
+                if analytics:
+                    analytics.record('event_card_sent', user.id, event_id=event_id,
+                                     step='card', key=f'card:{message.chat.id}:{message.message_id}')
                 await _remind_profile_if_missing(message, db)
                 return
         except Exception:
@@ -266,7 +280,7 @@ async def _show_events_list(message: Message, events: list):
 
 
 @router.callback_query(F.data.startswith("show_event_"))
-async def show_event_detail(callback: CallbackQuery, db):
+async def show_event_detail(callback: CallbackQuery, db, analytics=None):
     event_id = int(callback.data.split("_")[-1])
     event = db.get_event_by_id(event_id)
     if not event:
@@ -285,6 +299,9 @@ async def show_event_detail(callback: CallbackQuery, db):
             await callback.message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
     else:
         await callback.message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
+    if analytics:
+        analytics.record('event_card_sent', callback.from_user.id, event_id=event_id,
+                         step='card', key=f'card_callback:{callback.id}')
     await callback.answer()
 
 

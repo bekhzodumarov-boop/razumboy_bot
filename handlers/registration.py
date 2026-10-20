@@ -1,4 +1,5 @@
 import re
+from analytics import begin_attempt, emit
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -78,12 +79,17 @@ def _load_prev(state_data: dict, prev):
 
 
 @router.message(F.text == "📝 Регистрация")
-async def start_registration(message: Message, state: FSMContext, db):
+async def start_registration(message: Message, state: FSMContext, db, analytics=None):
     events = db.get_open_events()
     if not events:
+        emit(analytics, 'registration_failed', message.from_user.id, {}, 'start',
+             'unavailable', key=f'unavailable:{message.chat.id}:{message.message_id}')
         await message.answer("Сейчас нет открытых игр для регистрации.")
         return
     prev = db.get_last_registration_by_telegram(message.from_user.id)
+    if not await begin_attempt(state, analytics, message.from_user.id,
+                               source=f'message:{message.chat.id}:{message.message_id}'):
+        return
     await state.update_data(**_load_prev({}, prev))
     await state.set_state(RegistrationState.team_name)
     prev_name = prev["team_name"] if prev and prev["team_name"] else None
@@ -94,14 +100,25 @@ async def start_registration(message: Message, state: FSMContext, db):
 
 
 @router.callback_query(F.data.startswith("register_event_"))
-async def register_from_event(callback: CallbackQuery, state: FSMContext, db):
+async def register_from_event(callback: CallbackQuery, state: FSMContext, db, analytics=None):
     event_id = int(callback.data.split("_")[-1])
     event = db.get_event_by_id(event_id)
     if not event or event["status"] != "open":
+        emit(analytics, 'registration_failed', callback.from_user.id,
+             {'event_id': event_id}, 'start', 'unavailable', key=f'unavailable:{callback.id}')
         await callback.message.answer("Эта игра недоступна для регистрации.")
         await callback.answer()
         return
     prev = db.get_last_registration_by_telegram(callback.from_user.id)
+    # A repeated click while already filling this game must not reset the form.
+    existing = await state.get_data()
+    if existing.get('attempt_id') and existing.get('event_id') == event_id:
+        await callback.answer()
+        return
+    if not await begin_attempt(state, analytics, callback.from_user.id, event_id,
+                               source=f'callback:{callback.id}'):
+        await callback.answer()
+        return
     await state.update_data(event_id=event_id, **_load_prev({}, prev))
     await state.set_state(RegistrationState.team_name)
     prev_name = prev["team_name"] if prev and prev["team_name"] else None
@@ -404,9 +421,15 @@ async def _show_summary(message, state, data):
 
 @router.callback_query(F.data == "edit_registration")
 async def edit_registration(callback: CallbackQuery, state: FSMContext):
+    if await state.get_state() != RegistrationState.confirm.state:
+        await callback.answer('Форма устарела. Начните регистрацию заново.', show_alert=True)
+        return
     data = await state.get_data()
     event_id = data.get("event_id")
+    attempt_id = data.get("attempt_id")
     await state.clear()
+    await state.update_data(attempt_id=attempt_id,
+                            attempt_revision=data.get('attempt_revision', 0) + 1)
     if event_id:
         await state.update_data(event_id=event_id)
     await state.set_state(RegistrationState.team_name)
@@ -424,17 +447,24 @@ async def cancel_registration(callback: CallbackQuery, state: FSMContext, admin_
 # ── Подтверждение ──────────────────────────────────────────────
 
 @router.callback_query(F.data == "confirm_registration")
-async def confirm_registration(callback: CallbackQuery, state: FSMContext, db, bot, admin_ids: list[int]):
+async def confirm_registration(callback: CallbackQuery, state: FSMContext, db, bot, admin_ids: list[int], analytics=None):
     data = await state.get_data()
+    if not all(k in data for k in ('event_id', 'team_name', 'team_size', 'captain_name', 'phone')):
+        emit(analytics, 'registration_failed', callback.from_user.id, data, 'confirm',
+             'state_lost', key=f'state_lost:{callback.from_user.id}:{callback.message.message_id}')
+        await callback.answer('Форма устарела. Начните регистрацию заново.', show_alert=True)
+        return
     event_id = data["event_id"]
 
     user_row = db.get_user_by_telegram_id(callback.from_user.id)
     if not user_row:
+        emit(analytics, 'registration_failed', callback.from_user.id, data, 'confirm', 'user_missing')
         await callback.message.answer("Ошибка: пользователь не найден. Нажмите /start и попробуйте снова.")
         await callback.answer()
         return
 
     if db.has_active_registration(event_id, user_row["id"]):
+        emit(analytics, 'registration_failed', callback.from_user.id, data, 'confirm', 'duplicate')
         await callback.message.answer("У вас уже есть активная регистрация на эту игру.")
         await state.clear()
         await callback.answer()
@@ -449,6 +479,8 @@ async def confirm_registration(callback: CallbackQuery, state: FSMContext, db, b
         phone=data["phone"],
         comment=data.get("comment", ""),
     )
+    emit(analytics, 'registration_completed', callback.from_user.id, data, 'confirm',
+         key=f"{data.get('attempt_id')}:terminal")
 
     event = db.get_event_by_id(event_id)
     date_short = format_date_short(event["event_date"])

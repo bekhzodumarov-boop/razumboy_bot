@@ -2,6 +2,8 @@
 import asyncio
 from datetime import datetime, timezone
 import unittest
+import os
+from unittest.mock import patch
 
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
@@ -10,6 +12,7 @@ from aiogram.types import Message, Update, User
 
 from analytics import report
 from app import create_dispatcher
+from scheduling import scheduler_enabled, start_scheduler
 import test_analytics as fixtures
 
 
@@ -172,6 +175,25 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
         await self.feed(self.update(callback='confirm_registration'))
         self.assertEqual(report(self.path, source='unknown')['registrations_completed'], 1)
         self.assertNotIn('private-name', str(self.rows()))
+
+    async def test_scheduler_modes_do_not_change_registration_and_analytics(self):
+        for count, value in enumerate(('0', '1'), start=1):
+            with self.subTest(value=value), patch.dict(os.environ, {'SCHEDULER_ENABLED': value}), \
+                    patch('scheduling.AsyncIOScheduler') as constructor:
+                scheduler = start_scheduler(self.bot, self.db, [], 0, enabled=scheduler_enabled())
+                await self.fill()
+                await self.feed(self.update(callback='confirm_registration'))
+                self.assertEqual(report(self.path)['registrations_completed'], count)
+                self.assertEqual(self.business.execute('SELECT COUNT(*) FROM registrations').fetchone()[0], 1)
+                if value == '0':
+                    constructor.assert_not_called()
+                    self.assertIsNone(scheduler)
+                else:
+                    scheduler.start.assert_called_once_with()
+                    scheduler.shutdown()
+                # Independent booking fixture for the next mode, not a live database.
+                self.business.execute('DELETE FROM registrations')
+                self.business.commit()
 
 
 if __name__ == '__main__':

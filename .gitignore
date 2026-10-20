@@ -3,6 +3,8 @@
 __pycache__/
 *.pyc
 .test-venv/
+.test-python313/
+.test-venv313/
 *.analytics.sqlite*
 .DS_Store
 CLAUDE.md

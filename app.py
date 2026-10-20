@@ -6,11 +6,9 @@ from analytics_middleware import FunnelMiddleware
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import SimpleEventIsolation
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from database import Database
 from handlers import common_router, registration_router, admin_router, user_router, giveaway_router
-from handlers.giveaway import check_giveaway_schedule, send_friday_winner_reminders
-from handlers.admin import auto_remind_day_before, auto_remind_day_of, auto_remind_day_of_followup
+from scheduling import scheduler_enabled, start_scheduler
 from utils import sync_templates_to_db
 
 # Включаем логирование всех ошибок
@@ -42,6 +40,7 @@ async def main():
     from config import load_config
 
     config = load_config()
+    enable_scheduler = scheduler_enabled()
     db = Database(config.db_path)
 
     # Синхронизируем шаблоны из Obsidian-файлов в базу данных
@@ -56,61 +55,19 @@ async def main():
                  if os.getenv('FUNNEL_ANALYTICS_ENABLED', '0') == '1' else None)
     dp = create_dispatcher(db, bot, config.admin_ids, analytics)
 
-    # ── APScheduler: проверка расписания розыгрыша каждую минуту ──
-    scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
-    scheduler.add_job(
-        check_giveaway_schedule,
-        trigger="cron",
-        minute="*",          # каждую минуту
-        args=[bot, db, config.admin_ids, config.channel_id],
-    )
-    # Пятничная рассылка победителям розыгрыша — каждый четверг в 21:10
-    scheduler.add_job(
-        send_friday_winner_reminders,
-        trigger="cron",
-        day_of_week="thu",
-        hour=21,
-        minute=10,
-        args=[bot, db, config.admin_ids],
-    )
-    # Авторассылка за день до игры — ежедневно в 10:00
-    scheduler.add_job(
-        auto_remind_day_before,
-        trigger="cron",
-        hour=10,
-        minute=0,
-        args=[bot, db, config.admin_ids],
-    )
-    # Авторассылка в день игры — ежедневно в 10:00
-    scheduler.add_job(
-        auto_remind_day_of,
-        trigger="cron",
-        hour=10,
-        minute=0,
-        args=[bot, db, config.admin_ids],
-    )
-    # Повторные напоминания тем, кто не ответил — 12:00, 15:00, 17:00
-    for _hour in (12, 15, 17):
-        scheduler.add_job(
-            auto_remind_day_of_followup,
-            trigger="cron",
-            hour=_hour,
-            minute=0,
-            args=[bot, db, config.admin_ids, _hour],
-        )
-    scheduler.start()
-    logger.info("APScheduler запущен — проверка расписания розыгрыша каждую минуту")
-
-    print("Бот Разумбой запущен...")
-    for admin_id in config.admin_ids:
-        try:
-            await bot.send_message(admin_id, "✅ Бот запущен и готов к работе!")
-        except Exception:
-            pass
+    scheduler = start_scheduler(bot, db, config.admin_ids, config.channel_id,
+                                enabled=enable_scheduler)
     try:
+        print("Бот Разумбой запущен...")
+        for admin_id in config.admin_ids:
+            try:
+                await bot.send_message(admin_id, "✅ Бот запущен и готов к работе!")
+            except Exception:
+                pass
         await dp.start_polling(bot)
     finally:
-        scheduler.shutdown()
+        if scheduler is not None and scheduler.running:
+            scheduler.shutdown()
 
 
 if __name__ == "__main__":

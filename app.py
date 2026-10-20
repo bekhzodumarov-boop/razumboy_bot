@@ -7,7 +7,6 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import SimpleEventIsolation
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from config import load_config
 from database import Database
 from handlers import common_router, registration_router, admin_router, user_router, giveaway_router
 from handlers.giveaway import check_giveaway_schedule, send_friday_winner_reminders
@@ -22,7 +21,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def create_dispatcher(db, bot, admin_ids, analytics=None):
+    """Build routing without starting polling, scheduler or database initialization."""
+    dp = Dispatcher(events_isolation=SimpleEventIsolation())
+    dp['db'] = db
+    dp['admin_ids'] = admin_ids
+    dp['bot'] = bot
+    dp['analytics'] = analytics
+    dp.message.middleware(FunnelMiddleware())
+    dp.callback_query.middleware(FunnelMiddleware())
+    dp.include_router(common_router)
+    dp.include_router(registration_router)
+    dp.include_router(user_router)
+    dp.include_router(giveaway_router)
+    dp.include_router(admin_router)
+    return dp
+
+
 async def main():
+    from config import load_config
+
     config = load_config()
     db = Database(config.db_path)
 
@@ -33,22 +51,10 @@ async def main():
         token=config.bot_token,
         default=DefaultBotProperties(parse_mode="HTML"),
     )
-    dp = Dispatcher(events_isolation=SimpleEventIsolation())
-
-    dp["db"] = db
-    dp["admin_ids"] = config.admin_ids
-    dp["bot"] = bot
     # Separate journal: no changes to business tables or Database migrations.
-    dp["analytics"] = (Analytics(config.db_path + '.analytics.sqlite')
-                       if os.getenv('FUNNEL_ANALYTICS_ENABLED', '0') == '1' else None)
-    dp.message.middleware(FunnelMiddleware())
-    dp.callback_query.middleware(FunnelMiddleware())
-
-    dp.include_router(common_router)
-    dp.include_router(registration_router)
-    dp.include_router(user_router)
-    dp.include_router(giveaway_router)
-    dp.include_router(admin_router)
+    analytics = (Analytics(config.db_path + '.analytics.sqlite')
+                 if os.getenv('FUNNEL_ANALYTICS_ENABLED', '0') == '1' else None)
+    dp = create_dispatcher(db, bot, config.admin_ids, analytics)
 
     # ── APScheduler: проверка расписания розыгрыша каждую минуту ──
     scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")

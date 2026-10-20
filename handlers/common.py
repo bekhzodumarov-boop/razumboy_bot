@@ -1,4 +1,5 @@
 import datetime
+from analytics import parse_event_link
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton as KB
@@ -126,18 +127,18 @@ async def cmd_cancel(message: Message, state: FSMContext, admin_ids: list[int]):
 
 # ── Пункт 11, 12: /start — подписка + список игр ─────────────
 @router.message(Command("start"))
-async def cmd_start(message: Message, db, admin_ids: list[int], analytics=None):
+async def cmd_start(message: Message, db, admin_ids: list[int], analytics=None, state: FSMContext = None):
     user = message.from_user
     parts = message.text.split() if message.text else []
-    analytics_event_id = None
-    if len(parts) > 1 and parts[1].startswith('event_'):
-        try:
-            analytics_event_id = int(parts[1].split('_')[1])
-        except (ValueError, IndexError):
-            pass
+    analytics_event_id, traffic_source = parse_event_link(parts[1] if len(parts) > 1 else '')
+    if len(parts) == 1:
+        traffic_source = 'direct'
+    if state:
+        await state.update_data(traffic_event_id=analytics_event_id, traffic_source=traffic_source)
     if analytics:
         analytics.record('bot_started', user.id,
                          event_id=analytics_event_id,
+                         source=traffic_source,
                          key=f'start:{message.chat.id}:{message.message_id}')
 
     # Проверяем: новый пользователь? (до upsert_user)
@@ -214,9 +215,9 @@ async def cmd_start(message: Message, db, admin_ids: list[int], analytics=None):
             pass
 
     # Deep link: /start event_42 — показать конкретную игру
-    if len(parts) > 1 and parts[1].startswith("event_"):
+    if analytics_event_id is not None:
         try:
-            event_id = int(parts[1].split("_")[1])
+            event_id = analytics_event_id
             event = db.get_event_by_id(event_id)
             if event:
                 await message.answer(
@@ -238,6 +239,7 @@ async def cmd_start(message: Message, db, admin_ids: list[int], analytics=None):
                     await message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
                 if analytics:
                     analytics.record('event_card_sent', user.id, event_id=event_id,
+                                     source=traffic_source,
                                      step='card', key=f'card:{message.chat.id}:{message.message_id}')
                 await _remind_profile_if_missing(message, db)
                 return
@@ -280,7 +282,7 @@ async def _show_events_list(message: Message, events: list):
 
 
 @router.callback_query(F.data.startswith("show_event_"))
-async def show_event_detail(callback: CallbackQuery, db, analytics=None):
+async def show_event_detail(callback: CallbackQuery, db, analytics=None, state: FSMContext = None):
     event_id = int(callback.data.split("_")[-1])
     event = db.get_event_by_id(event_id)
     if not event:
@@ -300,7 +302,10 @@ async def show_event_detail(callback: CallbackQuery, db, analytics=None):
     else:
         await callback.message.answer(text, reply_markup=upcoming_event_kb(event["id"]))
     if analytics:
+        context = await state.get_data() if state else {}
+        traffic_source = context.get('traffic_source', 'direct') if context.get('traffic_event_id') == event_id else 'direct'
         analytics.record('event_card_sent', callback.from_user.id, event_id=event_id,
+                         source=traffic_source,
                          step='card', key=f'card_callback:{callback.id}')
     await callback.answer()
 

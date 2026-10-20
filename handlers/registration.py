@@ -88,7 +88,7 @@ async def start_registration(message: Message, state: FSMContext, db, analytics=
         return
     prev = db.get_last_registration_by_telegram(message.from_user.id)
     if not await begin_attempt(state, analytics, message.from_user.id,
-                               source=f'message:{message.chat.id}:{message.message_id}'):
+                               delivery_key=f'message:{message.chat.id}:{message.message_id}'):
         return
     await state.update_data(**_load_prev({}, prev))
     await state.set_state(RegistrationState.team_name)
@@ -116,7 +116,7 @@ async def register_from_event(callback: CallbackQuery, state: FSMContext, db, an
         await callback.answer()
         return
     if not await begin_attempt(state, analytics, callback.from_user.id, event_id,
-                               source=f'callback:{callback.id}'):
+                               delivery_key=f'callback:{callback.id}'):
         await callback.answer()
         return
     await state.update_data(event_id=event_id, **_load_prev({}, prev))
@@ -429,6 +429,7 @@ async def edit_registration(callback: CallbackQuery, state: FSMContext):
     attempt_id = data.get("attempt_id")
     await state.clear()
     await state.update_data(attempt_id=attempt_id,
+                            attempt_source=data.get('attempt_source', 'unknown'),
                             attempt_revision=data.get('attempt_revision', 0) + 1)
     if event_id:
         await state.update_data(event_id=event_id)

@@ -1,0 +1,126 @@
+{
+  "filters": {
+    "event_id": 50,
+    "from_inclusive": "2026-10-20T00:00:00+00:00",
+    "until_exclusive": "2026-10-21T00:00:00+00:00",
+    "source": null
+  },
+  "bot_starts": 1,
+  "unique_starters": 1,
+  "event_cards_sent": 0,
+  "registrations_started": 6,
+  "registrations_completed": 1,
+  "steps": {
+    "team_name": 6
+  },
+  "step_events": {
+    "team_name": 6
+  },
+  "outcome_counts": {
+    "unfinished": 1,
+    "cancelled": 1,
+    "technical_errors": 1,
+    "duplicates": 1,
+    "superseded": 1,
+    "unavailable": 0,
+    "completed": 1
+  },
+  "unfinished": [
+    {
+      "attempt_id": "open",
+      "user_id": 42,
+      "event_id": 50,
+      "source": "instagram",
+      "step": "team_name",
+      "event_name": "registration_step_completed",
+      "result": "ok",
+      "timestamp": "2026-10-20T10:00:00.000Z",
+      "last_completed_step": "team_name",
+      "expected_step": "team_size"
+    }
+  ],
+  "cancelled": [
+    {
+      "attempt_id": "cancel",
+      "user_id": 42,
+      "event_id": 50,
+      "source": "instagram",
+      "step": "start",
+      "event_name": "registration_cancelled",
+      "result": "cancelled",
+      "timestamp": "2026-10-20T10:00:00.000Z",
+      "last_completed_step": "team_name",
+      "expected_step": "team_name"
+    }
+  ],
+  "technical_errors": [
+    {
+      "attempt_id": "technical",
+      "user_id": 42,
+      "event_id": 50,
+      "source": "instagram",
+      "step": "phone",
+      "event_name": "registration_failed",
+      "result": "handler_error",
+      "timestamp": "2026-10-20T10:00:00.000Z",
+      "last_completed_step": "team_name",
+      "expected_step": "phone"
+    }
+  ],
+  "duplicates": [
+    {
+      "attempt_id": "duplicate",
+      "user_id": 42,
+      "event_id": 50,
+      "source": "instagram",
+      "step": "confirm",
+      "event_name": "registration_failed",
+      "result": "duplicate",
+      "timestamp": "2026-10-20T10:00:00.000Z",
+      "last_completed_step": "team_name",
+      "expected_step": "confirm"
+    }
+  ],
+  "superseded": [
+    {
+      "attempt_id": "replaced",
+      "user_id": 42,
+      "event_id": 50,
+      "source": "instagram",
+      "step": "start",
+      "event_name": "registration_cancelled",
+      "result": "superseded",
+      "timestamp": "2026-10-20T10:00:00.000Z",
+      "last_completed_step": "team_name",
+      "expected_step": "team_name"
+    }
+  ],
+  "unavailable": [],
+  "completed": [
+    {
+      "attempt_id": "complete",
+      "user_id": 42,
+      "event_id": 50,
+      "source": "instagram",
+      "step": "confirm",
+      "event_name": "registration_completed",
+      "result": "ok",
+      "timestamp": "2026-10-20T10:00:00.000Z",
+      "last_completed_step": "team_name",
+      "expected_step": null
+    }
+  ],
+  "technical_error_events": 1,
+  "duplicate_events": 1,
+  "unlinked_failures": [],
+  "by_source": {
+    "instagram": {
+      "bot_started": 1,
+      "registration_started": 6,
+      "registration_step_completed": 6,
+      "registration_completed": 1,
+      "registration_cancelled": 2,
+      "registration_failed": 2
+    }
+  }
+}

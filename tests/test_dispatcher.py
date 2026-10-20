@@ -11,6 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from aiogram.types import Message, Update, User
 
 from analytics import report
+from states import RegistrationState
 from app import create_dispatcher
 from scheduling import scheduler_enabled, start_scheduler
 import test_analytics as fixtures
@@ -146,9 +147,140 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
         await self.feed(self.update(callback='confirm_registration'))
         self.assertEqual(self.business.execute('SELECT COUNT(*) FROM registrations').fetchone()[0], 1)
         self.analytics.path = str(self.path)
-        await self.fill()
+        await self.feed(self.update(callback='register_event_50'))
+        self.assertEqual(report(self.path)['registrations_started'], 0)
+        self.assertIn('Вы уже зарегистрированы', self.session.calls[-2].text)
+        self.assertEqual(self.business.execute('SELECT COUNT(*) FROM registrations').fetchone()[0], 1)
+
+    def context(self):
+        return self.dp.fsm.get_context(bot=self.bot, chat_id=42, user_id=42)
+
+    def button(self, prefix):
+        messages = [c for c in self.session.calls if getattr(c, 'reply_markup', None)
+                    and hasattr(c.reply_markup, 'inline_keyboard')]
+        return next(b.callback_data for row in messages[-1].reply_markup.inline_keyboard
+                    for b in row if b.callback_data.startswith(prefix))
+
+    async def test_resume_every_stage_without_new_start_or_step(self):
+        await self.feed(self.update(text='/start event_50'))
+        await self.feed(self.update(callback='register_event_50'))
+        stages = [RegistrationState.team_name, RegistrationState.team_size,
+                  RegistrationState.captain_name, RegistrationState.phone,
+                  RegistrationState.comment, RegistrationState.confirm,
+                  RegistrationState.choose_event]
+        for stage in stages:
+            with self.subTest(stage=stage.state):
+                await self.context().set_state(stage)
+                await self.context().update_data(team_name='Synthetic', team_size=5,
+                    captain_name='Synthetic', phone='+998901234567', comment='')
+                before = await self.context().get_data()
+                count = len(self.rows())
+                await self.feed(self.update(callback='register_event_50'))
+                self.assertIn('Вы уже начали регистрацию', self.session.calls[-2].text)
+                await self.feed(self.update(callback=self.button('reg_resume_')))
+                self.assertEqual(await self.context().get_state(), stage.state)
+                self.assertEqual(await self.context().get_data(), before)
+                self.assertEqual(len(self.rows()), count)
+        self.assertEqual(report(self.path)['registrations_started'], 1)
+
+    async def test_restart_supersedes_and_stale_button_cannot_reset_again(self):
+        await self.feed(self.update(text='/start event_50_src_instagram'))
+        await self.feed(self.update(callback='register_event_50'))
+        await self.feed(self.update(text='Synthetic'))
+        old = (await self.context().get_data())['attempt_id']
+        await self.feed(self.update(callback='register_event_50'))
+        restart = self.button('reg_restart_')
+        await asyncio.gather(self.feed(self.update(callback=restart)),
+                             self.feed(self.update(callback=restart)))
+        new = await self.context().get_data()
+        self.assertNotEqual(old, new['attempt_id'])
+        self.assertNotIn('team_name', new)
+        self.assertEqual(new['attempt_source'], 'instagram')
+        await self.feed(self.update(callback=restart))
+        self.assertEqual(await self.context().get_data(), new)
+        out = report(self.path)
+        self.assertEqual(out['registrations_started'], 2)
+        self.assertEqual(out['outcome_counts']['superseded'], 1)
+        self.assertEqual(out['outcome_counts']['unfinished'], 1)
+        self.assertEqual(out['technical_error_events'], 0)
+        self.assertEqual(out['steps'], {'team_name': 1})
+        await self.feed(self.update(callback='reg_cancel'))
+        self.assertEqual(report(self.path)['outcome_counts']['cancelled'], 1)
+
+    async def test_incomplete_progress_only_offers_restart(self):
+        await self.feed(self.update(callback='register_event_50'))
+        await self.context().set_state(RegistrationState.confirm)
+        await self.feed(self.update(callback='register_event_50'))
+        self.assertIn('неполная', self.session.calls[-2].text)
+        restart = self.button('reg_restart_')
+        await self.feed(self.update(callback=restart))
+        self.assertEqual(await self.context().get_state(), RegistrationState.team_name.state)
+        self.assertEqual(report(self.path)['outcome_counts']['superseded'], 1)
+
+    async def test_menu_choose_event_resumes_without_picking_or_resetting(self):
+        await self.feed(self.update(text='📝 Регистрация'))
+        await self.fill(start=False)
+        self.assertEqual(await self.context().get_state(), RegistrationState.choose_event.state)
+        before = await self.context().get_data()
+        await self.feed(self.update(callback='register_event_50'))
+        await self.feed(self.update(callback=self.button('reg_resume_')))
+        self.assertEqual(await self.context().get_data(), before)
+        self.assertEqual(await self.context().get_state(), RegistrationState.choose_event.state)
+        await self.feed(self.update(callback='reg_pick_event_50'))
         await self.feed(self.update(callback='confirm_registration'))
-        self.assertEqual(report(self.path)['outcome_counts']['duplicates'], 1)
+        self.assertEqual(report(self.path)['registrations_started'], 1)
+        self.assertEqual(report(self.path)['registrations_completed'], 1)
+
+    async def test_missing_attempt_id_and_unknown_state_offer_restart(self):
+        for current in (RegistrationState.phone.state, 'RegistrationState:obsolete'):
+            await self.context().clear()
+            await self.context().set_state(current)
+            await self.feed(self.update(callback='register_event_50'))
+            restart = self.button('reg_restart_')
+            self.assertEqual(report(self.path)['technical_error_events'], 0)
+            await self.feed(self.update(callback=restart))
+            self.assertEqual(await self.context().get_state(), RegistrationState.team_name.state)
+
+    async def test_storage_loss_offers_safe_restart_and_leaves_old_unfinished(self):
+        await self.feed(self.update(callback='register_event_50'))
+        await self.feed(self.update(text='Synthetic'))
+        await self.feed(self.update(callback='register_event_50'))
+        resume = self.button('reg_resume_')
+        self.dp.fsm.storage = MemoryStorage()
+        await self.feed(self.update(callback=resume))
+        restart = self.button('reg_restart_')
+        await self.feed(self.update(callback=restart))
+        self.assertEqual(await self.context().get_state(), RegistrationState.team_name.state)
+        out = report(self.path)
+        self.assertEqual(out['registrations_started'], 2)
+        self.assertEqual(out['outcome_counts']['unfinished'], 2)
+        self.assertEqual(out['technical_error_events'], 0)
+
+    async def test_closed_game_blocks_resume_restart_and_confirmation(self):
+        await self.fill()
+        await self.feed(self.update(callback='register_event_50'))
+        resume, restart = self.button('reg_resume_'), self.button('reg_restart_')
+        for status in ('closed', 'cancelled'):
+            self.db.get_event_by_id = lambda game: {**self.event, 'status': status}
+            for callback in ('register_event_50', resume, restart, 'confirm_registration'):
+                await self.feed(self.update(callback=callback))
+        self.assertEqual(self.business.execute('SELECT COUNT(*) FROM registrations').fetchone()[0], 0)
+        self.assertEqual(report(self.path)['registrations_started'], 1)
+
+    async def test_resume_can_complete_booking_and_duplicate_click_does_not_start(self):
+        await self.feed(self.update(text='/start event_50'))
+        await self.feed(self.update(callback='register_event_50'))
+        await self.feed(self.update(text='Synthetic'))
+        await self.feed(self.update(callback='register_event_50'))
+        await self.feed(self.update(callback=self.button('reg_resume_')))
+        for text in ('5', 'Synthetic', '+998901234567', '-'):
+            await self.feed(self.update(text=text))
+        await self.feed(self.update(callback='confirm_registration'))
+        await self.feed(self.update(callback='register_event_50'))
+        self.assertIn('Вы уже зарегистрированы', self.session.calls[-2].text)
+        out = report(self.path)
+        self.assertEqual(out['registrations_started'], 1)
+        self.assertEqual(out['registrations_completed'], 1)
 
     async def test_other_game_does_not_inherit_source_and_invalid_input_not_completed(self):
         await self.feed(self.update(text='/start event_51_src_qr'))

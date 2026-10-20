@@ -1,4 +1,5 @@
 import datetime
+from delivery import tracked_broadcast, additional_notification, current_metrics, format_metrics, set_campaign_unit, delivery_recipients, classify_error
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -371,6 +372,7 @@ async def edit_event_save(message: Message, state: FSMContext, db):
 
 
 @router.callback_query(F.data.startswith("notify_event_change_"))
+@tracked_broadcast
 async def notify_event_change(callback: CallbackQuery, db, bot, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
@@ -401,7 +403,7 @@ async def notify_event_change(callback: CallbackQuery, db, bot, admin_ids: list[
     )
 
     sent = 0
-    for reg in registrations:
+    for reg in delivery_recipients(registrations, db):
         try:
             await bot.send_message(reg["telegram_id"], text)
             sent += 1
@@ -765,6 +767,7 @@ async def broadcast_dayof_choose(callback: CallbackQuery, state: FSMContext, db)
 
 
 @router.callback_query(F.data.startswith("dayof_"))
+@tracked_broadcast
 async def broadcast_send_dayof(callback: CallbackQuery, state: FSMContext, db, bot):
     event_id = int(callback.data.split("_")[-1])
     event = db.get_event_by_id(event_id)
@@ -782,7 +785,7 @@ async def broadcast_send_dayof(callback: CallbackQuery, state: FSMContext, db, b
         return
 
     sent_count = 0
-    for reg in registrations:
+    for reg in delivery_recipients(registrations, db):
         # Пункт 7: добавить локацию со ссылкой если есть
         location_line = f"📍 {event['location']}"
         if event["location_url"]:
@@ -833,6 +836,7 @@ async def broadcast_custom_text(message: Message, state: FSMContext):
 
 
 @router.message(AdminBroadcastState.custom_photo)
+@tracked_broadcast
 async def broadcast_custom_send(message: Message, state: FSMContext, db, bot):
     data = await state.get_data()
     text = data["custom_text"]
@@ -840,7 +844,7 @@ async def broadcast_custom_send(message: Message, state: FSMContext, db, bot):
 
     subscribers = db.get_subscribers()
     sent_count = 0
-    for user in subscribers:
+    for user in delivery_recipients(subscribers, db):
         try:
             if photo_file_id:
                 await bot.send_photo(user["telegram_id"], photo=photo_file_id, caption=text)
@@ -926,11 +930,11 @@ async def admin_do_cancel(callback: CallbackQuery, db, bot, admin_ids: list[int]
 
 # ── Вспомогательные функции ───────────────────────────────────
 
+@tracked_broadcast
 async def _do_broadcast(message, db, bot, event, text):
     subscribers = db.get_subscribers()
     sent_count = 0
-    errors = []
-    for user in subscribers:
+    for user in delivery_recipients(subscribers, db):
         try:
             if event["photo_file_id"]:
                 if len(text) <= 1024:
@@ -943,16 +947,17 @@ async def _do_broadcast(message, db, bot, event, text):
             sent_count += 1
             # Если уже зарегистрированы на эту игру — сообщаем об этом
             if db.has_active_registration_by_telegram(user["telegram_id"], event["id"]):
-                await bot.send_message(
-                    user["telegram_id"],
-                    "Кстати, ваша команда уже зарегистрировалась! До встречи на игре! 🎉"
-                )
-        except Exception as e:
-            errors.append(f"{user['telegram_id']}: {e}")
+                with additional_notification():
+                    try:
+                        await bot.send_message(user["telegram_id"],
+                            "Кстати, ваша команда уже зарегистрировалась! До встречи на игре! 🎉")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     db.save_broadcast(event["id"], text, sent_count, broadcast_type="manual", recipients_info="Все подписчики")
     result = f"✅ Рассылка завершена. Отправлено: {sent_count} из {len(subscribers)}"
-    if errors:
-        result += f"\n\n⚠️ Ошибки ({len(errors)}):\n" + "\n".join(errors[:5])
+    result += '\n\n' + format_metrics(current_metrics())
     await message.answer(result, reply_markup=admin_menu())
 
 
@@ -994,11 +999,31 @@ async def show_subscribers_menu(message: Message, state: FSMContext, db, admin_i
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👁 Просмотреть список", callback_data="subs_view_list")],
         [InlineKeyboardButton(text="📥 Скачать CSV (профили)", callback_data="subs_export_csv")],
+        [InlineKeyboardButton(text="📊 Доставка рассылок", callback_data="delivery_report")],
     ])
     await message.answer(
         f"👥 <b>Подписчики: {count} чел.</b>\n\nВыберите действие:",
         reply_markup=kb
     )
+
+
+@router.callback_query(F.data == 'delivery_report')
+async def delivery_report(callback: CallbackQuery, db, admin_ids: list[int]):
+    if not is_admin(callback.from_user.id, admin_ids):
+        await callback.answer()
+        return
+    report = db.get_delivery_report()
+    states = report['availability']
+    text = (f"📊 Доставка (накопительно с включения учёта)\n"
+            f"Unknown: {states['unknown']} | Reachable: {states['reachable']} | Blocked: {states['blocked']}\n"
+            f"Допущенных подписчиков: {report['eligible_subscribers']}\n"
+            f"Других частных контактов: {report['other_private_contacts']}\n\n"
+            f"API-попыток (включая индивидуальные): {report['api_attempts']}\n" +
+            '\n'.join(f'{key}: {value}' for key,value in sorted(report['api_results'].items())))
+    for run in report['recent_runs']:
+        text += f"\n\n{run['kind']} ({run['created_at']} UTC)\n" + format_metrics(run)
+    await callback.message.answer(text)
+    await callback.answer()
 
 
 @router.callback_query(F.data == "subs_view_list")
@@ -1206,6 +1231,7 @@ async def cancel_event_abort(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("cancel_confirm_"))
+@tracked_broadcast
 async def cancel_event_do(callback: CallbackQuery, state: FSMContext, db, bot):
     event_id = int(callback.data.split("_")[-1])
     event = db.get_event_by_id(event_id)
@@ -1233,7 +1259,7 @@ async def cancel_event_do(callback: CallbackQuery, state: FSMContext, db, bot):
     )
 
     sent_count = 0
-    for reg in registrations:
+    for reg in delivery_recipients(registrations, db):
         try:
             await bot.send_message(reg["telegram_id"], cancel_text)
             sent_count += 1
@@ -1490,6 +1516,7 @@ async def winners_broadcast_text(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "winners_broadcast_confirm")
+@tracked_broadcast
 async def winners_broadcast_confirm(callback: CallbackQuery, state: FSMContext, db, bot, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
@@ -1517,22 +1544,18 @@ async def winners_broadcast_confirm(callback: CallbackQuery, state: FSMContext, 
     eligible = [w for w in winners if w["telegram_id"] > 0]
 
     sent = 0
-    failed = []
-    for w in eligible:
+    for w in delivery_recipients(eligible, db):
         try:
             await bot.send_message(w["telegram_id"], text)
             sent += 1
         except Exception:
-            name = w.get("full_name") or w.get("username") or f"id{w['telegram_id']}"
-            failed.append(name)
+            pass
 
     result_text = (
         f"✅ Рассылка завершена!\n\n"
         f"📨 Отправлено: <b>{sent}</b> из <b>{len(eligible)}</b> победителей."
     )
-    if failed:
-        result_text += f"\n\n❌ Не доставлено ({len(failed)}):\n" + "\n".join(f"• {n}" for n in failed)
-        result_text += "\n\n💡 Скорее всего эти пользователи заблокировали бота."
+    result_text += '\n\n' + format_metrics(current_metrics())
 
     await callback.message.answer(result_text, reply_markup=admin_menu())
     await callback.answer()
@@ -1582,6 +1605,7 @@ async def randoboy_list(callback: CallbackQuery, db, admin_ids: list[int]):
 
 
 @router.callback_query(F.data == "randoboy_start")
+@tracked_broadcast
 async def randoboy_start(callback: CallbackQuery, db, bot, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
@@ -1598,7 +1622,7 @@ async def randoboy_start(callback: CallbackQuery, db, bot, admin_ids: list[int])
         [InlineKeyboardButton(text="📤 Поделиться", url=randoboy_share_url)],
     ])
     sent = 0
-    for user in subscribers:
+    for user in delivery_recipients(subscribers, db):
         try:
             await bot.send_message(
                 user["telegram_id"],
@@ -1613,6 +1637,7 @@ async def randoboy_start(callback: CallbackQuery, db, bot, admin_ids: list[int])
 
 
 @router.callback_query(F.data == "randoboy_winner")
+@tracked_broadcast
 async def randoboy_pick_winner(callback: CallbackQuery, db, bot, admin_ids: list[int]):
     if not is_admin(callback.from_user.id, admin_ids):
         await callback.answer()
@@ -1640,7 +1665,7 @@ async def randoboy_pick_winner(callback: CallbackQuery, db, bot, admin_ids: list
     )
     remaining = db.randoboy_get_participants()
     subscribers = db.get_subscribers()
-    for user in subscribers:
+    for user in delivery_recipients(subscribers, db):
         try:
             await bot.send_message(user["telegram_id"], broadcast_text)
         except Exception:
@@ -1748,6 +1773,7 @@ async def blitz_cancel(callback: CallbackQuery, state: FSMContext, admin_ids: li
 
 
 @router.callback_query(F.data.startswith("blitz_mode_"), BlitzQuizState.mode)
+@tracked_broadcast
 async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, admin_ids: list[int]):
     import asyncio, datetime
     mode = callback.data.replace("blitz_mode_", "")
@@ -1773,7 +1799,7 @@ async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, ad
         f"Напишите ответ прямо в этот чат!"
     )
     sent = 0
-    for user in subscribers:
+    for user in delivery_recipients(subscribers, db):
         try:
             if photo_id:
                 await bot.send_photo(user["telegram_id"], photo=photo_id, caption=question_text)
@@ -1793,7 +1819,8 @@ async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, ad
     await callback.answer()
 
     # Автоматически завершаем квиз через N секунд
-    async def finish_blitz():
+    @tracked_broadcast
+    async def finish_blitz(db=db, bot=bot, admin_ids=admin_ids):
         await asyncio.sleep(duration)
         session = db.blitz_get_session()
         if not session or not session["active"]:
@@ -1813,7 +1840,7 @@ async def blitz_set_mode(callback: CallbackQuery, state: FSMContext, db, bot, ad
             result_text = "\n".join(lines)
         else:
             result_text = "⚡️ Блиц-квиз завершён. Правильных ответов не было."
-        for user in db.get_subscribers():
+        for user in delivery_recipients(db.get_subscribers(), db):
             try:
                 await bot.send_message(user["telegram_id"], result_text)
             except Exception:
@@ -2266,6 +2293,7 @@ async def photo_choose_type(callback: CallbackQuery, state: FSMContext):
 
 
 @router.message(AdminPhotoAlbumState.url)
+@tracked_broadcast
 async def photo_enter_url(message: Message, state: FSMContext, db, bot):
     url = message.text.strip()
     data = await state.get_data()
@@ -2289,7 +2317,7 @@ async def photo_enter_url(message: Message, state: FSMContext, db, bot):
 
     subscribers = db.get_subscribers()
     sent_count = 0
-    for user in subscribers:
+    for user in delivery_recipients(subscribers, db):
         try:
             await bot.send_message(user["telegram_id"], broadcast_text, reply_markup=kb)
             sent_count += 1
@@ -2321,6 +2349,7 @@ async def photo_delete(callback: CallbackQuery, db, admin_ids: list[int]):
 
 # ── Авторассылки (APScheduler) ───────────────────────────────
 
+@tracked_broadcast
 async def auto_remind_day_before(bot, db, admin_ids: list):
     """Авторассылка за день до игры — в 10:00 всем подписчикам."""
     import datetime
@@ -2331,6 +2360,7 @@ async def auto_remind_day_before(bot, db, admin_ids: list):
 
     subscribers = db.get_subscribers()
     for event in events:
+        set_campaign_unit(event['id'])
         location_line = event["location"]
         if event["location_url"]:
             location_line += f"\n📍 {event['location_url']}"
@@ -2355,7 +2385,7 @@ async def auto_remind_day_before(bot, db, admin_ids: list):
             price=event["price_text"] or "уточняется",
         )
         sent = 0
-        for user in subscribers:
+        for user in delivery_recipients(subscribers, db):
             try:
                 if event["photo_file_id"]:
                     await bot.send_photo(user["telegram_id"], photo=event["photo_file_id"], caption=text[:1024])
@@ -2382,6 +2412,7 @@ async def auto_remind_day_before(bot, db, admin_ids: list):
                 pass
 
 
+@tracked_broadcast
 async def auto_remind_day_of(bot, db, admin_ids: list):
     """Авторассылка в день игры — в 10:00 зарегистрированным командам."""
     import datetime
@@ -2391,6 +2422,7 @@ async def auto_remind_day_of(bot, db, admin_ids: list):
         return
 
     for event in events:
+        set_campaign_unit(event['id'])
         registrations = db.get_registrations_for_event(event["id"])
         if not registrations:
             continue
@@ -2412,7 +2444,7 @@ async def auto_remind_day_of(bot, db, admin_ids: list):
             )
         )
         sent = 0
-        for reg in registrations:
+        for reg in delivery_recipients(registrations, db):
             text = _game_day_tpl.format(
                 title=event["title"],
                 size=reg["team_size"],
@@ -2455,6 +2487,7 @@ async def auto_remind_day_of(bot, db, admin_ids: list):
                 pass
 
 
+@tracked_broadcast
 async def auto_remind_day_of_followup(bot, db, admin_ids: list, reminder_hour: int):
     """Повторное напоминание в 12, 15, 17 — только тем, кто ещё не ответил."""
     import datetime
@@ -2483,6 +2516,7 @@ async def auto_remind_day_of_followup(bot, db, admin_ids: list, reminder_hour: i
         )
 
     for event in events:
+        set_campaign_unit(event['id'])
         registrations = db.get_registrations_for_event(event["id"])
         if not registrations:
             continue
@@ -2492,9 +2526,8 @@ async def auto_remind_day_of_followup(bot, db, admin_ids: list, reminder_hour: i
             location_line += f"\n🗺 {event['location_url']}"
 
         sent = 0
-        for reg in registrations:
-            if db.get_confirmation(reg["id"]) is not None:
-                continue
+        pending = [reg for reg in registrations if db.get_confirmation(reg['id']) is None]
+        for reg in delivery_recipients(pending, db):
 
             team_label = reg["team_name"] if reg["team_name"] else "вашей команды"
             text = (
@@ -3094,7 +3127,7 @@ async def reply_to_user_send(message: Message, state: FSMContext, bot, admin_ids
         )
         await message.answer(f"✅ Ответ отправлен пользователю.")
     except Exception as e:
-        await message.answer(f"❌ Не удалось отправить ответ: {e}")
+        await message.answer(f"❌ Не удалось отправить ответ: {classify_error(e)}")
     await state.clear()
 
 
@@ -3103,6 +3136,7 @@ async def reply_to_user_send(message: Message, state: FSMContext, bot, admin_ids
 # обязан стоять после всех специфических хендлеров.
 
 @router.message(F.text & ~F.text.startswith("/"))
+@tracked_broadcast
 async def blitz_catch_answer(message: Message, bot, db, admin_ids: list[int]):
     """Перехватываем ответы на блиц-квиз"""
     import datetime
@@ -3133,7 +3167,7 @@ async def blitz_catch_answer(message: Message, bot, db, admin_ids: list[int]):
                 f"1. {mention} — «{message.text.strip()}»\n\n"
                 f"🎉 Поздравляем!"
             )
-            for sub in db.get_subscribers():
+            for sub in delivery_recipients(db.get_subscribers(), db):
                 try:
                     await bot.send_message(sub["telegram_id"], result_text)
                 except Exception:

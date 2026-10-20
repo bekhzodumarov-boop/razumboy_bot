@@ -9,6 +9,7 @@ handlers/giveaway.py — Розыгрыш бесплатных проходок
 import random
 import datetime
 import logging
+from delivery import tracked_broadcast, classify_error, delivery_recipients
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from utils import read_template
@@ -32,6 +33,7 @@ def _now_hhmm() -> str:
 
 # ── Рассылка объявления ────────────────────────────────────────
 
+@tracked_broadcast
 async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
     settings = db.get_giveaway_settings()
     if not settings or not settings["active"]:
@@ -62,7 +64,7 @@ async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
 
     subscribers = db.get_subscribers()
     sent_count = 0
-    for user in subscribers:
+    for user in delivery_recipients(subscribers, db):
         try:
             if settings["image_file_id"]:
                 await bot.send_photo(
@@ -79,7 +81,7 @@ async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
                 )
             sent_count += 1
         except Exception as e:
-            logger.warning(f"giveaway_announce: не удалось отправить {user['telegram_id']}: {e}")
+            logger.warning('giveaway_announce: delivery_failed (%s)', classify_error(e))
 
     db.update_session_status(session_id, "announced", sent_count=sent_count)
     db.save_broadcast(
@@ -102,7 +104,7 @@ async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
                 await bot.send_message(channel_id, announce_text, reply_markup=kb)
             logger.info(f"giveaway_announce: объявление отправлено в канал {channel_id}")
         except Exception as e:
-            logger.warning(f"giveaway_announce: не удалось отправить в канал {channel_id}: {e}")
+            logger.warning('giveaway_announce: channel_failed (%s)', classify_error(e))
 
     # Статистика для админов
     participants_count = db.count_giveaway_participants(session_id)
@@ -121,6 +123,7 @@ async def giveaway_announce(bot, db, admin_ids: list, channel_id: int = 0):
 
 # ── Жеребьёвка ────────────────────────────────────────────────
 
+@tracked_broadcast
 async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
     settings = db.get_giveaway_settings()
     if not settings or not settings["active"]:
@@ -145,7 +148,7 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
             )
         )
         subscribers = db.get_subscribers()
-        for user in subscribers:
+        for user in delivery_recipients(subscribers, db):
             try:
                 await bot.send_message(user["telegram_id"], no_participants_text)
             except Exception:
@@ -156,7 +159,7 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
             try:
                 await bot.send_message(channel_id, no_participants_text)
             except Exception as e:
-                logger.warning(f"giveaway_draw: не удалось отправить в канал {channel_id}: {e}")
+                logger.warning('giveaway_draw: channel_failed (%s)', classify_error(e))
 
         db.update_session_status(session_id, "done")
 
@@ -196,7 +199,7 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
 
     # Рассылаем только участникам (тем, кто нажал «Принять участие»)
     sent_count = 0
-    for user in participants:
+    for user in delivery_recipients(participants, db):
         try:
             await bot.send_message(user["telegram_id"], congrats_text)
             sent_count += 1
@@ -209,7 +212,7 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
             await bot.send_message(channel_id, congrats_text)
             logger.info(f"giveaway_draw: результаты отправлены в канал {channel_id}")
         except Exception as e:
-            logger.warning(f"giveaway_draw: не удалось отправить в канал {channel_id}: {e}")
+            logger.warning('giveaway_draw: channel_failed (%s)', classify_error(e))
 
     # Сохраняем победителей в таблицу giveaway_winners
     for w in winners:
@@ -238,6 +241,7 @@ async def giveaway_draw(bot, db, admin_ids: list, channel_id: int = 0):
 
 # ── Напоминание за 10 минут до жеребьёвки ─────────────────────
 
+@tracked_broadcast
 async def giveaway_reminder(bot, db, admin_ids: list, channel_id: int = 0):
     """Отправляет напоминание не-участникам в 20:50 — за 10 минут до жеребьёвки."""
     settings = db.get_giveaway_settings()
@@ -269,12 +273,12 @@ async def giveaway_reminder(bot, db, admin_ids: list, channel_id: int = 0):
     ]])
 
     sent = 0
-    for user in non_participants:
+    for user in delivery_recipients(non_participants, db):
         try:
             await bot.send_message(user["telegram_id"], reminder_text, reply_markup=kb)
             sent += 1
         except Exception as e:
-            logger.warning(f"giveaway_reminder: не удалось отправить {user['telegram_id']}: {e}")
+            logger.warning('giveaway_reminder: delivery_failed (%s)', classify_error(e))
 
     db.save_broadcast(
         None, reminder_text, sent,
@@ -392,6 +396,7 @@ def _format_admin_winner_list(responses, reminder_date: str) -> str:
     return "\n".join(lines)
 
 
+@tracked_broadcast
 async def send_friday_winner_reminders(bot, db, admin_ids: list):
     """Рассылка победителям Рандомбой за последние 5 дней — каждый четверг в 21:10."""
     settings = db.get_giveaway_settings()
@@ -409,7 +414,7 @@ async def send_friday_winner_reminders(bot, db, admin_ids: list):
     winner_reminder_text = read_template("winner_thursday_reminder", fallback=_WINNER_REMINDER_FALLBACK)
 
     sent = 0
-    for w in winners:
+    for w in delivery_recipients(winners, db):
         # Создаём запись ответа со статусом pending
         db.create_winner_reminder_response(
             telegram_id=w["telegram_id"],
@@ -425,7 +430,7 @@ async def send_friday_winner_reminders(bot, db, admin_ids: list):
             )
             sent += 1
         except Exception as e:
-            logger.warning(f"send_friday_winner_reminders: не удалось отправить {w['telegram_id']}: {e}")
+            logger.warning('send_friday_winner_reminders: delivery_failed (%s)', classify_error(e))
 
     db.save_broadcast(
         None, winner_reminder_text, sent,

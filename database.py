@@ -4,6 +4,7 @@ import random
 import string
 import datetime
 from typing import Optional
+from delivery_store import DeliveryStore
 
 # Пороги реферальной системы: (кол-во приглашённых, тип награды, читаемое название)
 REFERRAL_THRESHOLDS = [
@@ -13,15 +14,24 @@ REFERRAL_THRESHOLDS = [
 ]
 
 
-class Database:
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
+class Database(DeliveryStore):
     def __init__(self, db_path: str):
         self.db_path = db_path
         # Создаём папку если не существует (нужно для Railway Volume /data/)
         os.makedirs(os.path.dirname(db_path), exist_ok=True) if os.path.dirname(db_path) else None
         self._init_db()
+        self._init_delivery()
 
     def _connect(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, factory=_ClosingConnection)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -294,13 +304,6 @@ class Database:
                 except Exception:
                     pass  # Колонка уже существует — пропускаем
 
-            # Все существующие пользователи становятся подписчиками если ещё не были
-            try:
-                conn.execute("UPDATE users SET subscribed = 1 WHERE subscribed = 0")
-                conn.commit()
-            except Exception:
-                pass
-
             # Заполнить active_days если NULL (после миграции)
             try:
                 conn.execute(
@@ -542,7 +545,8 @@ class Database:
 
     def get_subscribers(self) -> list:
         with self._connect() as conn:
-            cur = conn.execute("SELECT * FROM users WHERE subscribed = 1")
+            cur = conn.execute("""SELECT * FROM users u WHERE subscribed=1 AND NOT EXISTS
+                (SELECT 1 FROM user_delivery_state d WHERE d.telegram_id=u.telegram_id AND availability='blocked')""")
             return cur.fetchall()
 
 
@@ -1091,6 +1095,8 @@ class Database:
             return conn.execute("""
                 SELECT telegram_id FROM users
                 WHERE subscribed = 1
+                  AND NOT EXISTS (SELECT 1 FROM user_delivery_state d
+                    WHERE d.telegram_id=users.telegram_id AND d.availability='blocked')
                   AND telegram_id NOT IN (
                       SELECT telegram_id FROM giveaway_participants
                       WHERE session_id = ?

@@ -43,6 +43,7 @@ class FunnelTests(unittest.IsolatedAsyncioTestCase):
                 'SELECT 1 FROM registrations WHERE event_id=? AND user_id=?', (e, u)).fetchone()),
             create_registration=self.create_registration,
             upsert_user=lambda **kw: None, set_subscription=lambda *args: None,
+            restore_availability=lambda *args: None,
             get_subscriber_profile=lambda _: True)
         self.sequence = 0
 

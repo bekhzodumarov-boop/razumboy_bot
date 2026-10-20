@@ -68,6 +68,7 @@ class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
             database = stack.enter_context(patch('app.Database', return_value=db))
             stack.enter_context(patch('app.sync_templates_to_db'))
             stack.enter_context(patch('app.Bot', return_value=bot))
+            stack.enter_context(patch('app.configure_delivery'))
             journal = stack.enter_context(patch('app.Analytics', return_value=analytics))
             dispatcher = stack.enter_context(patch('app.create_dispatcher', return_value=dp))
             constructor = stack.enter_context(patch('scheduling.AsyncIOScheduler'))

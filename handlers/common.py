@@ -2,13 +2,23 @@ import datetime
 from analytics import parse_event_link
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton as KB
+from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton as KB
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import main_menu
 from states import AskQuestionState, SubscribeState
 from keyboards.inline import upcoming_event_kb
 
 router = Router()
+
+
+@router.my_chat_member()
+async def private_chat_availability(event: ChatMemberUpdated, db):
+    if event.chat.type != 'private' or event.chat.id <= 0:
+        return
+    if event.new_chat_member.status == 'kicked':
+        db.mark_delivery_blocked(event.chat.id)
+    elif event.new_chat_member.status == 'member':
+        db.restore_availability(event.chat.id)
 
 
 def _generate_qr(code: str):
@@ -151,7 +161,8 @@ async def cmd_start(message: Message, db, admin_ids: list[int], analytics=None, 
         language_code=user.language_code,
         is_admin=user.id in admin_ids,
     )
-    db.set_subscription(user.id, True)
+    if message.chat.id == user.id:
+        db.restore_availability(user.id)
     _is_admin = user.id in admin_ids
 
     # Deep link: /start verify_RAZUM-XXXXXX — сотрудник сканирует QR для верификации
@@ -417,6 +428,8 @@ async def fill_profile_callback(callback: CallbackQuery, state: FSMContext, db):
 
 @router.message(F.text == "📬 Получать анонсы")
 async def subscribe_start(message: Message, state: FSMContext, db):
+    if message.chat.id == message.from_user.id:
+        db.restore_availability(message.from_user.id)
     db.set_subscription(message.from_user.id, True)
     profile = db.get_subscriber_profile(message.from_user.id)
     if profile:

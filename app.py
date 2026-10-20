@@ -9,6 +9,7 @@ from aiogram.fsm.storage.memory import SimpleEventIsolation
 from database import Database
 from handlers import common_router, registration_router, admin_router, user_router, giveaway_router
 from scheduling import scheduler_enabled, start_scheduler
+from delivery import configure_delivery
 from utils import sync_templates_to_db
 
 # Включаем логирование всех ошибок
@@ -50,6 +51,7 @@ async def main():
         token=config.bot_token,
         default=DefaultBotProperties(parse_mode="HTML"),
     )
+    configure_delivery(bot, db)
     # Separate journal: no changes to business tables or Database migrations.
     analytics = (Analytics(config.db_path + '.analytics.sqlite')
                  if os.getenv('FUNNEL_ANALYTICS_ENABLED', '0') == '1' else None)

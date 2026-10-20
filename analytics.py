@@ -88,11 +88,17 @@ async def begin_attempt(state, analytics, user_id, event_id=None, delivery_key=N
         except Exception:
             logger.warning('analytics_read_failed')
     if old and analytics:
+        current = await state.get_state()
+        old_step = current.split(':')[-1] if current and current.startswith('RegistrationState:') else 'start'
+        if old_step not in STEPS:
+            old_step = 'start'
         analytics.record('registration_cancelled', user_id, key=f'{old}:terminal',
                          attempt_id=old, event_id=previous.get('event_id'),
-                         step='start', result='superseded', source=previous.get('attempt_source'))
+                         step=old_step, result='superseded', source=previous.get('attempt_source'))
     traffic_source = 'menu' if event_id is None else 'direct'
-    if event_id is not None and previous.get('traffic_event_id') == event_id:
+    if old and previous.get('event_id') == event_id:
+        traffic_source = previous.get('attempt_source', traffic_source)
+    elif event_id is not None and previous.get('traffic_event_id') == event_id:
         traffic_source = previous.get('traffic_source', 'direct')
     await state.clear()
     await state.update_data(attempt_id=attempt, event_id=event_id,

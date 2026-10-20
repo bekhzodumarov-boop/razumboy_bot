@@ -65,6 +65,16 @@ SQLite/Volume и тестовых администраторов. Флаг от�
 
 ## Команды бота
 
+Аудит локального автономного backup без персональных данных в выводе:
+
+```powershell
+python subscriber_audit.py "C:\Backups\offline-copy.sqlite" --confirm-local-backup
+```
+
+Скрипт открывает только явно указанный snapshot в read-only и не запускает бота.
+Метрики, ограничения подписки и оценка рекламных сегментов описаны в
+[аудите хранения подписчиков](docs/subscriber-storage-audit.md).
+
 ### Для пользователей
 - `/start` — главное меню
 

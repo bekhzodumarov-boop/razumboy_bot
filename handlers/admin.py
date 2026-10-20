@@ -1043,7 +1043,7 @@ async def subs_export_csv(callback: CallbackQuery, db, admin_ids: list[int]):
 
     lines = ["№,Имя,Фамилия,Пол,Возраст,Телефон,Username,Telegram ID,Дата регистрации"]
     for i, p in enumerate(profiles, 1):
-        username = f"@{p['username']}" if p.get('username') else ""
+        username = f"@{p['username']}" if p['username'] else ""
         lines.append(
             f"{i},"
             f"\"{p['first_name'] or ''}\","

@@ -1,0 +1,124 @@
+{
+  "as_of_exclusive_utc": "2026-10-21T00:00:00+00:00",
+  "totals": {
+    "users": 6,
+    "subscribers_profile": 4,
+    "registrations": 7,
+    "referrals": 3
+  },
+  "subscriptions": {
+    "flag_1": 4,
+    "flag_0": 1,
+    "invalid_or_null": 1,
+    "flag_1_without_profile": 2,
+    "profiles_linked_to_flag_0": 1
+  },
+  "phones": {
+    "users": {
+      "valid_rows": 1,
+      "unique_valid": 1,
+      "missing": 4,
+      "invalid_or_unsupported": 1,
+      "repeated_valid_rows": 0
+    },
+    "subscribers_profile": {
+      "valid_rows": 4,
+      "unique_valid": 3,
+      "missing": 0,
+      "invalid_or_unsupported": 0,
+      "repeated_valid_rows": 1
+    },
+    "registrations": {
+      "valid_rows": 7,
+      "unique_valid": 4,
+      "missing": 0,
+      "invalid_or_unsupported": 0,
+      "repeated_valid_rows": 3
+    },
+    "union_unique_valid": 5,
+    "pairwise_shared_unique": {
+      "users__subscribers_profile": 1,
+      "users__registrations": 1,
+      "subscribers_profile__registrations": 2
+    }
+  },
+  "account_overlaps": {
+    "users__profiles": 3,
+    "users__registrations": 3,
+    "users__referrals": 3,
+    "profiles__registrations": 2,
+    "profiles__referrals": 3,
+    "registrations__referrals": 3,
+    "users_profiles_registrations": 2
+  },
+  "captains": {
+    "all_registration_rows": {
+      "one": 1,
+      "two": 1,
+      "three_plus": 1
+    },
+    "currently_confirmed_rows": {
+      "one": 2,
+      "two": 0,
+      "three_plus": 1
+    }
+  },
+  "anomalies": {
+    "profiles_without_user": 1,
+    "registrations_without_user": 1,
+    "referrals_missing_referrer": 1,
+    "referrals_missing_referred": 1,
+    "self_referrals": 0,
+    "duplicate_confirmed_user_game_pairs": 0,
+    "accounts_with_profile_registration_phone_difference": 0,
+    "phones_shared_across_accounts": 1
+  },
+  "activity": {
+    "last_90_days": {
+      "users": 2,
+      "subscribers_profile": 1,
+      "registrations": 2,
+      "referrals": 2,
+      "registration_accounts": 2,
+      "confirmed_registration_accounts": 2,
+      "non_admin_confirmed_captains_with_phone": 2,
+      "accounts_with_observed_creation_activity": 3
+    },
+    "last_180_days": {
+      "users": 2,
+      "subscribers_profile": 1,
+      "registrations": 4,
+      "referrals": 2,
+      "registration_accounts": 3,
+      "confirmed_registration_accounts": 3,
+      "non_admin_confirmed_captains_with_phone": 3,
+      "accounts_with_observed_creation_activity": 3
+    }
+  },
+  "invalid_or_missing_timestamps": {
+    "users": 1,
+    "subscribers_profile": 0,
+    "registrations": 1,
+    "referrals": 0
+  },
+  "potential_segments_counts_only": {
+    "non_admin_captains_confirmed_1_plus_with_phone": 3,
+    "non_admin_captains_confirmed_2_plus_with_phone": 1,
+    "non_admin_captains_confirmed_3_plus_with_phone": 1,
+    "subscribed_profiles_with_phone_non_admin": 2,
+    "profile_accounts_without_confirmed_registration_with_phone_non_admin": 1,
+    "qualified_referred_profiles_with_phone_non_admin": 1
+  },
+  "advertising_consent": {
+    "schema_name_hints": 0,
+    "evidence_verified": false,
+    "advertising_eligibility": "not_verified_do_not_export"
+  },
+  "limitations": [
+    "counts_are_accounts_not_verified_people",
+    "phone_format_is_not_ownership_verification",
+    "creation_timestamps_are_not_last_seen",
+    "referral_qualification_time_excluded_timezone_unspecified",
+    "subscription_flag_is_not_advertising_consent"
+  ]
+}

@@ -39,7 +39,7 @@ def build_report(path, *, event_id=None, date_from=None, date_to=None, source=No
     if source is not None and source not in SOURCES:
         raise ValueError('Invalid source')
     uri = Path(path).resolve().as_uri() + '?mode=ro'
-    with closing(sqlite3.connect(uri, uri=True)) as conn:
+    with closing(sqlite3.connect(uri, uri=True, timeout=0.2)) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute('BEGIN')  # One snapshot, including schema introspection.
         columns = {r[1] for r in conn.execute('PRAGMA table_info(funnel_events)')}

@@ -148,6 +148,16 @@ class CoreTests(unittest.TestCase):
 
 
 class ExportTests(unittest.TestCase):
+    def test_store_refuses_bot_or_journal_before_any_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for table in ('users','registrations','events','funnel_events'):
+                path=Path(directory)/(table+'.db')
+                with closing(sqlite3.connect(path)) as conn,conn:
+                    conn.execute('CREATE TABLE '+table+'(id INTEGER)')
+                before=hashlib.sha256(path.read_bytes()).hexdigest()
+                with self.assertRaises(ValueError):Store(path)
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),before)
+
     def test_isolated_export_readonly_whitelist_and_old_schema(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);business=root/'copy # business.db';journal=root/'copy journal.db'

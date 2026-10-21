@@ -5,7 +5,7 @@ import io
 import json
 import sqlite3
 from collections import Counter, defaultdict
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -99,6 +99,12 @@ class Snapshot(Strict):
 class Store:
     def __init__(self, path):
         self.path = Path(path).resolve()
+        if self.path.exists():
+            # Reject a misconfigured business/journal path before ANY writes/DDL.
+            with closing(sqlite3.connect(self.path.as_uri()+'?mode=ro',uri=True,timeout=0.2)) as probe:
+                tables = {r[0] for r in probe.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if tables & {'users','registrations','events','funnel_events'}:
+                raise ValueError('Refusing a bot source database as dashboard storage')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.execute('PRAGMA journal_mode=WAL')

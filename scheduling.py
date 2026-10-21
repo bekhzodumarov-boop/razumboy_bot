@@ -5,6 +5,7 @@ import os
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from handlers.giveaway import check_giveaway_schedule, send_friday_winner_reminders
 from handlers.admin import auto_remind_day_before, auto_remind_day_of, auto_remind_day_of_followup
+from admin_digest import send_daily_digest, digest_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,10 @@ def start_scheduler(bot, db, admin_ids, channel_id, *, enabled=True):
     for hour in (12, 15, 17):
         scheduler.add_job(auto_remind_day_of_followup, trigger='cron', hour=hour, minute=0,
                           args=[bot, db, admin_ids, hour])
+    if digest_enabled():
+        scheduler.add_job(send_daily_digest, trigger='cron', hour=9, minute=0,
+                          args=[bot, db, admin_ids], id='admin_daily_digest',
+                          coalesce=True, max_instances=1)
     scheduler.start()
     logger.info('APScheduler started')
     return scheduler

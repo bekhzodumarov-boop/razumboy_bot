@@ -78,6 +78,32 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
     async def feed(self, update):
         return await self.dp.feed_update(self.bot, update, db=self.db, admin_ids=[], analytics=self.analytics)
 
+    async def test_reports_access_arguments_button_and_active_fsm(self):
+        from states import RegistrationState
+        self.db.db_path = self.business.execute('PRAGMA database_list').fetchone()[2]
+        self.business.execute("ALTER TABLE registrations ADD COLUMN status TEXT DEFAULT 'confirmed'")
+        self.business.execute('ALTER TABLE registrations ADD COLUMN team_size INTEGER DEFAULT 5')
+        self.business.execute('CREATE TABLE events(id INTEGER, title TEXT, event_date TEXT, event_time TEXT, max_teams INTEGER, status TEXT)')
+        self.business.execute("INSERT INTO events VALUES(50,'Test game','2099-01-01','19:00',12,'open')")
+        self.business.commit()
+        state = self.dp.fsm.get_context(bot=self.bot, chat_id=42, user_id=42)
+        await state.set_state(RegistrationState.team_name)
+        await state.set_data({'attempt_id': 'keep-this', 'event_id': 50})
+        for text in ('/report', '/report@OfflineTestBot 50', '📈 Отчёт по играм'):
+            before = len(self.session.calls)
+            await self.dp.feed_update(self.bot, self.update(text=text), db=self.db, admin_ids=[42])
+            sent = self.session.calls[before:]
+            self.assertTrue(any('#50' in (getattr(m, 'text', '') or '') for m in sent))
+            self.assertEqual(await state.get_state(), RegistrationState.team_name.state)
+            self.assertEqual(await state.get_data(), {'attempt_id': 'keep-this', 'event_id': 50})
+        for text in ('/report 0', '/report nope', '/report 50 51', '/report ' + '9' * 100):
+            await self.dp.feed_update(self.bot, self.update(text=text), db=self.db, admin_ids=[42])
+            self.assertIn('Использование', self.session.calls[-1].text)
+        for text in ('/report', '/report 50', '📈 Отчёт по играм'):
+            await self.feed(self.update(text=text))
+            self.assertIn('нет доступа', self.session.calls[-1].text)
+            self.assertEqual(await state.get_state(), RegistrationState.team_name.state)
+
     async def fill(self, start=True):
         if start:
             await self.feed(self.update(callback='register_event_50'))

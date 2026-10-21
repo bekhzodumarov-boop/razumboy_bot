@@ -1,13 +1,16 @@
 import datetime
+import asyncio
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
 from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState, AdminReferralCheckState, AdminAddWinnerState, AdminReplyState
 from utils import read_template
+from admin_digest import format_digest, split_digest
 
 router = Router()
+report_router = Router(name='admin_reports')
 
 DAYS_RU = {
     0: "понедельник", 1: "вторник", 2: "среда",
@@ -108,6 +111,26 @@ async def admin_panel_button(message: Message, state: FSMContext, admin_ids: lis
         return
     await state.clear()
     await message.answer("Добро пожаловать в админ-панель Разумбоя.", reply_markup=admin_menu())
+
+
+@report_router.message(F.text == "📈 Отчёт по играм")
+@report_router.message(Command('report'))
+async def admin_funnel_digest(message: Message, db, admin_ids: list[int], command: CommandObject = None):
+    if not is_admin(message.from_user.id, admin_ids):
+        await message.answer("У вас нет доступа к отчётам.")
+        return
+    argument = command.args.strip() if command and command.args else None
+    if argument and (not argument.isascii() or not argument.isdigit() or len(argument) > 19
+                     or not 0 < int(argument) < 2**63):
+        await message.answer('Использование: /report или /report ID игры')
+        return
+    try:
+        text = await asyncio.to_thread(format_digest, db.db_path,
+                                       event_id=int(argument) if argument else None)
+        for part in split_digest(text):
+            await message.answer(part, parse_mode='HTML')
+    except Exception:
+        await message.answer("⚠️ Отчёт временно недоступен.")
 
 
 # ── Создание игры ─────────────────────────────────────────────

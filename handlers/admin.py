@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from keyboards.reply import admin_menu, broadcast_type_kb, events_list_kb
 from states import AdminCreateEventState, AdminBroadcastState, AdminEditEventState, BlitzQuizState, AdminPhotoAlbumState, AdminGiveawayState, AdminWinnersBroadcastState, AdminBroadcastTemplateState, AdminReferralCheckState, AdminAddWinnerState, AdminReplyState
 from utils import read_template
+from admin_digest import format_digest
 
 router = Router()
 
@@ -108,6 +109,19 @@ async def admin_panel_button(message: Message, state: FSMContext, admin_ids: lis
         return
     await state.clear()
     await message.answer("Добро пожаловать в админ-панель Разумбоя.", reply_markup=admin_menu())
+
+
+@router.message(F.text == "📈 Отчёт по играм")
+@router.message(F.text == "/report")
+async def admin_funnel_digest(message: Message, db, admin_ids: list[int]):
+    if not is_admin(message.from_user.id, admin_ids):
+        await message.answer("У вас нет доступа к отчётам.")
+        return
+    try:
+        text = format_digest(db.db_path)
+        await message.answer(text, reply_markup=admin_menu())
+    except Exception:
+        await message.answer("⚠️ Отчёт временно недоступен.")
 
 
 # ── Создание игры ─────────────────────────────────────────────

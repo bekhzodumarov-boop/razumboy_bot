@@ -37,7 +37,7 @@ def _events(db_path, as_of, event_id=None):
 
 def _field(value, limit=200):
     # Keep each HTML line bounded; dynamic fields must never introduce markup/newlines.
-    return html.escape(str(value or '').replace('\n', ' ').replace('\r', ' ')[:limit])
+    return html.escape(' '.join(str(value or '').splitlines())[:limit])
 
 
 def split_digest(text):

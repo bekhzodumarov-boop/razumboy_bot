@@ -110,7 +110,7 @@ class DigestTests(unittest.TestCase):
     def test_long_html_split_and_uri_special_characters(self):
         with closing(sqlite3.connect(self.path)) as db, db:
             db.executemany('INSERT INTO events VALUES(?,?,?,?,?,?)',
-                          [(i, '<&😀\n' * 1000, '2026-10-23', '<19:00>', 0, 'open') for i in range(51, 70)])
+                          [(i, '<&😀\n\u2028\u0085' * 1000, '2026-10-23', '<19:00>', 0, 'open') for i in range(51, 70)])
         new_path = Path(self.path).with_name('test # report.sqlite')
         Path(self.path).rename(new_path)
         text = format_digest(new_path, now=self.now)

@@ -18,6 +18,7 @@ def admin_menu():
             [KeyboardButton(text="➕ Создать игру"), KeyboardButton(text="📋 Список игр")],
             [KeyboardButton(text="📨 Рассылка"), KeyboardButton(text="📥 Заявки")],
             [KeyboardButton(text="📊 Экспорт в Excel"), KeyboardButton(text="👥 Подписчики")],
+            [KeyboardButton(text="📈 Отчёт по играм")],
             [KeyboardButton(text="❌ Отменить игру"), KeyboardButton(text="📬 История рассылок")],
             [KeyboardButton(text="🗓 Прошедшие игры"), KeyboardButton(text="📋 Шаблоны рассылок")],
             [KeyboardButton(text="🎲 Рандомбой"), KeyboardButton(text="⚡️ Блиц-квиз")],
@@ -32,7 +33,7 @@ def admin_menu():
 def phone_request_kb():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📱 Поделиться номером", request_contact=True)],
+            [KeyboardButton(text="📱 Поделиться своим номером", request_contact=True)],
         ],
         resize_keyboard=True,
         one_time_keyboard=True,

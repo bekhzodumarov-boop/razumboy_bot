@@ -25,7 +25,8 @@ class FunnelMiddleware(BaseMiddleware):
             if is_cancel:
                 emit(analytics, 'registration_cancelled', event.from_user.id,
                      before, step, 'cancelled', key=f"{before['attempt_id']}:terminal")
-            elif next_state != current and next_state and next_state.startswith('RegistrationState:'):
+            elif (before.get('attempt_id') == after.get('attempt_id') and
+                  next_state != current and next_state and next_state.startswith('RegistrationState:')):
                 if getattr(event, 'data', None) == 'edit_registration':
                     emit(analytics, 'registration_step_completed', event.from_user.id,
                          {**before, **after}, step, 'edited')

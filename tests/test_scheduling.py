@@ -52,6 +52,22 @@ class SchedulerFlagTests(unittest.TestCase):
 
 
 class SchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_digest_schedule_and_restart_have_exactly_one_daily_job(self):
+        with patch.dict(os.environ, {'ADMIN_DIGEST_ENABLED': '1'}):
+            for _ in range(2):
+                scheduler = scheduling.start_scheduler(object(), object(), [], 0)
+                try:
+                    jobs = scheduler.get_jobs()
+                    self.assertEqual(len(jobs), 8)
+                    daily = [j for j in jobs if j.id == 'admin_daily_digest']
+                    self.assertEqual(len(daily), 1)
+                    self.assertEqual(daily[0].next_run_time.hour, 9)
+                    self.assertEqual(daily[0].next_run_time.minute, 0)
+                    self.assertEqual(str(daily[0].next_run_time.tzinfo), 'Asia/Tashkent')
+                finally:
+                    scheduler.shutdown()
+                    await asyncio.sleep(0)
+
     async def run_application(self, value, *, error=None, already_stopped=False):
         # All startup I/O is replaced: no config/.env, business DB or Telegram.
         config = SimpleNamespace(bot_token='offline', db_path='unused-test.db', admin_ids=[], channel_id=0)

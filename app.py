@@ -8,6 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import SimpleEventIsolation
 from database import Database
 from handlers import common_router, registration_router, admin_router, user_router, giveaway_router
+from handlers.admin import report_router
 from scheduling import scheduler_enabled, start_scheduler
 from utils import sync_templates_to_db
 
@@ -28,6 +29,8 @@ def create_dispatcher(db, bot, admin_ids, analytics=None):
     dp['analytics'] = analytics
     dp.message.middleware(FunnelMiddleware())
     dp.callback_query.middleware(FunnelMiddleware())
+    # Reports must be reachable before broad FSM handlers, without changing FSM data.
+    dp.include_router(report_router)
     dp.include_router(common_router)
     dp.include_router(registration_router)
     dp.include_router(user_router)

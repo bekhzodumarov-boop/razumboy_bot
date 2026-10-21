@@ -8,3 +8,9 @@ __pycache__/
 *.analytics.sqlite*
 .DS_Store
 CLAUDE.md
+.dashboard-venv/
+.dashboard-venv313/
+marketing_dashboard/frontend/node_modules/
+marketing_dashboard/frontend/dist/
+marketing_dashboard/runtime/
+.dashboard-*.log

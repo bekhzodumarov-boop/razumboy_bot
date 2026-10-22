@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {validate,summary,selectedEvents,csv} from './web/model.mjs';
+const raw=JSON.parse(fs.readFileSync(new URL('./web/seed.json',import.meta.url)));
+const d=validate(raw);
+test('attended totals and format/date filters',()=>{const s=summary(d.events);assert.equal(s.games,6);assert.equal(s.entries,49);assert.equal(s.visits,243);assert.equal(s.average,49/6);const m=summary(selectedEvents(d,{format:'Музыка'}));assert.equal(m.entries,15);assert.equal(m.visits,61);const range=summary(selectedEvents(d,{from:'2026-10-11',to:'2026-10-18'}));assert.equal(range.entries,21);assert.equal(range.visits,117);assert.equal(s.teams.find(t=>t.name==='Отчаянные').games,6);});
+test('registrations never count as attendance and missing is not zero',()=>{const e=structuredClone(d.events[0]);e.attended=null;const s=summary([e]);assert.equal(s.visits,0);assert.equal(s.average,null);assert.equal(s.known,0);});
+test('validation prevents duplicate rows, malformed dates and scripts as markup',()=>{const bad=structuredClone(raw);bad.events.push(bad.events[0]);assert.throws(()=>validate(bad));const wrong=structuredClone(raw);wrong.events[0].date='2026-02-31';assert.throws(()=>validate(wrong));const negative=structuredClone(raw);negative.events[0].teams[0].size=-3;assert.throws(()=>validate(negative));});
+test('allowlist drops private keys from imported snapshots and CSV blocks formula execution',()=>{const r=structuredClone(raw);r.phone='secret';r.events[0].teams[0].phone='secret';r.events[0].captain_name='secret';const clean=validate(r);assert.ok(!JSON.stringify(clean).includes('secret'));const e=structuredClone(d.events[0]);e.title='=1+1';assert.ok(csv([e]).includes("'="));});
+test('JSON roundtrip preserves metrics',()=>assert.deepEqual(summary(validate(JSON.parse(JSON.stringify(d))).events),summary(d.events)));

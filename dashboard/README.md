@@ -40,3 +40,22 @@ python -m unittest discover -s dashboard -p 'test_*.py'
 ```
 
 The Data section contains an end-user verification checklist. Known gaps: no live refresh, login/roles beyond private hosting owner access, financial ledger, CSV/XLSX import, team ID matching or automated AI recommendations. Competitor date calendars are incomplete and not synthesized.
+
+## Automatic read-only service (implemented, not activated in production)
+
+`python dashboard/server.py` serves the UI and same-origin `/api/live`. It does not start or import the bot. It requires `DASHBOARD_USERNAME` and a `DASHBOARD_PASSWORD` of 24+ characters, and challenges every route, including static files. On Railway use HTTPS ingress; only then set `DASHBOARD_HOST=0.0.0.0`. Keep credentials in server environment variables. Never put them in frontend code, Git, screenshots, or chat.
+
+The service must run in an environment with read access to the existing DB file. A separate Railway service does not automatically share the bot's SQLite volume. Do not start another bot worker or copy a stale DB back into production. A deployment topology must be verified before activation. The existing bot entrypoint remains unchanged.
+
+Server environment:
+
+- `DB_PATH`: existing bot SQLite path. Reads use mode=ro and never initialize schema.
+- `DASHBOARD_ANALYTICS_PATH`: optional analytics SQLite path.
+- `META_ACCESS_TOKEN`: server-only token with read access to the intended ad account.
+- `META_AD_ACCOUNT_ID`: numeric account ID, e.g. `993881037635584`.
+- `META_GRAPH_VERSION`: currently supported Graph version for the authorized Meta app. Set explicitly; no guessed version is shipped.
+- `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`: separate dashboard credentials, unrelated to the Telegram bot token.
+
+The UI probes `/api/live` on startup. On the authenticated server it refreshes once per minute; bot reads are cached for 60 seconds and Meta requests for 15 minutes. On static hosting the endpoint is absent, so the app retains organizer-confirmed attendance and marks live sources unconfigured. Unavailable sources are never rendered as zero. The Registrations tab displays live registrations separately, preserving manual attendance. Ads shows live daily rows when connected, otherwise explicitly labeled screenshot figures. The API uses current calendar month through today in Asia/Tashkent. Older ranges require a future API range extension; the period is displayed. Daily reach is not summed. Nothing changes ad delivery, budgets, registrations, or bot tables.
+
+Live source tests mock Meta HTTP responses and verify token handling, unavailable sources and cursor pagination. They do not establish access to a real Meta account or Railway production. Connecting a ChatGPT app alone does not configure these server variables or give the hosted dashboard unattended access.

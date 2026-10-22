@@ -1,0 +1,378 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-10-22",
+  "source_label": "Списки организатора · явка подтверждена в переписке 22.10.2026",
+  "events": [
+    {
+      "id": "manual-2026-10-01",
+      "date": "2026-10-01",
+      "title": "Стреляй и пой",
+      "format": "Музыка",
+      "attended": true,
+      "source": "Организатор: оба значка означают явку",
+      "teams": [
+        {
+          "name": "Котичные токсята",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Праздничный волосик",
+          "size": 3,
+          "kind": "team"
+        },
+        {
+          "name": "Отчаянные",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Триада",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Шатай Балтай",
+          "size": 6,
+          "kind": "team"
+        },
+        {
+          "name": "WTF",
+          "size": 3,
+          "kind": "team"
+        },
+        {
+          "name": "Ахз",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Гости без команды",
+          "size": 5,
+          "kind": "guest"
+        }
+      ],
+      "cancelled": 0,
+      "funnel": null
+    },
+    {
+      "id": "manual-2026-10-04",
+      "date": "2026-10-04",
+      "title": "RAZUMBOOO: 40-я игра года",
+      "format": "Тематическая",
+      "attended": true,
+      "source": "Организатор: оба значка означают явку",
+      "teams": [
+        {
+          "name": "Утомленные Фаррухом",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "İQль Пуаро",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Отчаянные",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Триада",
+          "size": 9,
+          "kind": "team"
+        },
+        {
+          "name": "One Piece",
+          "size": 7,
+          "kind": "team"
+        },
+        {
+          "name": "Сыр маминой подруги",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Праздничный волосик",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Котичные токсята",
+          "size": 3,
+          "kind": "team"
+        },
+        {
+          "name": "Banana Fish",
+          "size": 6,
+          "kind": "team"
+        },
+        {
+          "name": "РОЯЛЬ ФЛЭШ",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Ахз",
+          "size": 3,
+          "kind": "team"
+        },
+        {
+          "name": "Те и Йети",
+          "size": 8,
+          "kind": "team"
+        },
+        {
+          "name": "WTF",
+          "size": 2,
+          "kind": "team"
+        }
+      ],
+      "cancelled": 0,
+      "funnel": null
+    },
+    {
+      "id": "manual-2026-10-08",
+      "date": "2026-10-08",
+      "title": "Миллениалы против зумеров",
+      "format": "Музыка",
+      "attended": true,
+      "source": "Организатор: оба значка означают явку",
+      "teams": [
+        {
+          "name": "Праздничный волосик",
+          "size": 2,
+          "kind": "team"
+        },
+        {
+          "name": "Сыр маминой подруги",
+          "size": 2,
+          "kind": "team"
+        },
+        {
+          "name": "Котичные токсята",
+          "size": 3,
+          "kind": "team"
+        },
+        {
+          "name": "Отчаянные",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Гости без команды",
+          "size": 1,
+          "kind": "guest"
+        }
+      ],
+      "cancelled": 0,
+      "funnel": null
+    },
+    {
+      "id": "manual-2026-10-11",
+      "date": "2026-10-11",
+      "title": "Праздник урожая",
+      "format": "Тематическая",
+      "attended": true,
+      "source": "Организатор: оба значка означают явку",
+      "teams": [
+        {
+          "name": "Отчаянные",
+          "size": 6,
+          "kind": "team"
+        },
+        {
+          "name": "Триада",
+          "size": 6,
+          "kind": "team"
+        },
+        {
+          "name": "One Piece",
+          "size": 6,
+          "kind": "team"
+        },
+        {
+          "name": "Праздничный волосик",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "РОЯЛЬ ФЛЭШ",
+          "size": 10,
+          "kind": "team"
+        },
+        {
+          "name": "İQль Пуаро",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Вылетело из головы",
+          "size": 9,
+          "kind": "team"
+        },
+        {
+          "name": "Сыр маминой подруги",
+          "size": 4,
+          "kind": "team"
+        }
+      ],
+      "cancelled": 0,
+      "funnel": null
+    },
+    {
+      "id": "manual-2026-10-18",
+      "date": "2026-10-18",
+      "title": "КарнавалУйин",
+      "format": "Тематическая",
+      "attended": true,
+      "source": "Организатор: оба значка означают явку",
+      "teams": [
+        {
+          "name": "Триада",
+          "size": 8,
+          "kind": "team"
+        },
+        {
+          "name": "İQль Пуаро",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Утомленные Фаррухом",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Отчаянные",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Сыр маминой подруги",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "WTF",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Котичные токсята",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Корпорация монстров",
+          "size": 6,
+          "kind": "team"
+        },
+        {
+          "name": "Нас заставили",
+          "size": 6,
+          "kind": "team"
+        },
+        {
+          "name": "One Piece",
+          "size": 7,
+          "kind": "team"
+        },
+        {
+          "name": "РОЯЛЬ ФЛЭШ",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Праздничный волосик",
+          "size": 5,
+          "kind": "team"
+        },
+        {
+          "name": "Команда без названия · 18.10",
+          "size": 2,
+          "kind": "team"
+        }
+      ],
+      "cancelled": 0,
+      "funnel": null
+    },
+    {
+      "id": "manual-2026-10-22",
+      "date": "2026-10-22",
+      "title": "Дискотека 2000-х",
+      "format": "Музыка",
+      "attended": true,
+      "source": "Организатор: оба значка означают явку",
+      "teams": [
+        {
+          "name": "Праздничный волосик",
+          "size": 2,
+          "kind": "team"
+        },
+        {
+          "name": "Отчаянные",
+          "size": 4,
+          "kind": "team"
+        },
+        {
+          "name": "Котичные токсята",
+          "size": 3,
+          "kind": "team"
+        },
+        {
+          "name": "Я и бал принцесс",
+          "size": 6,
+          "kind": "team"
+        }
+      ],
+      "cancelled": 0,
+      "funnel": null
+    }
+  ],
+  "competitors": [
+    {
+      "name": "UZQUIZ",
+      "games": 5,
+      "entries": 147,
+      "language": "uz",
+      "source": "Сводка переписки 22.10.2026; исходные таблицы повторно не сверены"
+    },
+    {
+      "name": "Квиз, плиз!",
+      "games": 12,
+      "entries": 241,
+      "language": "ru",
+      "source": "Сводка переписки 22.10.2026; исходные таблицы повторно не сверены"
+    },
+    {
+      "name": "Мозгобойня",
+      "games": 5,
+      "entries": 53,
+      "language": "ru",
+      "source": "Сводка переписки 22.10.2026; исходные таблицы повторно не сверены"
+    },
+    {
+      "name": "Смузи Квиз",
+      "games": 15,
+      "entries": 149,
+      "language": "ru",
+      "source": "Сводка переписки 22.10.2026; исходные таблицы повторно не сверены"
+    },
+    {
+      "name": "Мохито Квиз",
+      "games": 13,
+      "entries": 122,
+      "language": "ru",
+      "source": "Сводка переписки 22.10.2026; исходные таблицы повторно не сверены"
+    },
+    {
+      "name": "Шейкер Квиз",
+      "games": 7,
+      "entries": 57,
+      "language": "ru",
+      "source": "Сводка переписки 22.10.2026; исходные таблицы повторно не сверены"
+    }
+  ]
+}

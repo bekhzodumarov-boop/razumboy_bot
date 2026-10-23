@@ -45,7 +45,7 @@ def money(value):
 
 
 def parse_payment_lines(text):
-    """Complete team payment breakdown; optional explicit amount after '='."""
+    """Parse counts only. Monetary amounts always come from the game price."""
     aliases = {'uzum':'uzum','узум':'uzum', 'payme':'payme','пейми':'payme',
                'пайми':'payme','пейме':'payme','пайме':'payme','пэйми':'payme',
                'click':'click','клик':'click','карта':'card','перевод':'card',
@@ -57,20 +57,30 @@ def parse_payment_lines(text):
         line = ' '.join(line.lower().split()).strip()
         if not line:
             continue
-        match = re.fullmatch(r'итого\s*:?\s*([0-9]+)',line)
-        if match:
+        if re.match(r'^итого(?:\s|:|$)', line):
             if total is not None:
                 raise FinanceError('Строка «Итого» должна быть только одна')
-            total = parse_integer(match[1],500)
+            value = line[5:].lstrip(':').strip()
+            if not value:
+                raise FinanceError('В строке “Итого” не указано количество')
+            total = parse_integer(value,500)
             continue
-        match = re.fullmatch(r'([a-zа-я ]+?)\s*:?\s+([0-9]+)(?:\s*=\s*([0-9 ,_\u00a0\u202f]+))?',line)
-        if not match or match[1] not in aliases:
-            raise FinanceError('Не понял строку. Пример: Узум 2. Для другой суммы: Узум 2 = 130000')
-        method = aliases[match[1]]
+        alias = next((a for a in sorted(aliases, key=len, reverse=True)
+                      if line == a or line.startswith(a+' ') or line.startswith(a+':')), None)
+        if alias is None:
+            raise FinanceError(f'Неизвестный способ в строке “{line}”. Пример: Узум 2')
+        value = line[len(alias):].lstrip(':').strip()
+        label = METHODS[aliases[alias]]
+        if not value:
+            raise FinanceError(f'В строке “{alias.capitalize()}” не указано количество')
+        if '=' in value:
+            raise FinanceError(f'В строке “{label}” указана сумма. Введите только количество; сумма рассчитывается по цене игры')
+        if not re.fullmatch(r'[0-9]+', value):
+            raise FinanceError(f'В строке “{label}” количество должно быть целым неотрицательным числом')
+        method = aliases[alias]
         if method in rows:
             raise FinanceError(f'{METHODS[method]} указан дважды. Оставьте одну строку с итогом')
-        rows[method] = {'players':parse_integer(match[2],500),
-                        'amount_uzs':parse_integer(match[3],10**12) if match[3] else None}
+        rows[method] = {'players':parse_integer(value,500)}
     if not rows:
         raise FinanceError('Укажите хотя бы один способ оплаты, например: Узум 2')
     if total is not None and total != sum(x['players'] for x in rows.values()):
@@ -238,38 +248,46 @@ class FinanceStore:
             c.execute('UPDATE finance_games SET ticket_uzs=?,revision=revision+1 WHERE event_id=?', (amount, event_id))
             self._audit(c, operation, event_id, actor, 'ticket_price', row, {'ticket_uzs': amount})
 
-    def batch_payment(self, team_id, rows, total, revision, price_revision, actor, operation):
-        """Atomically replace ALL methods, priced inside the same transaction."""
+    def _priced_payments(self, c, team_id, rows, total, revision, price_revision):
         if not rows or any(method not in METHODS for method in rows):
             raise FinanceError('Неизвестный или пустой список способов оплаты')
+        t = self._team(c, team_id)
+        self._revision(t, revision)
+        settings = dict(c.execute('SELECT * FROM finance_games WHERE event_id=?', (t['event_id'],)).fetchone())
+        if settings['revision'] != price_revision:
+            raise FinanceError('Цена игры изменилась. Откройте карточку команды заново')
+        price = settings['ticket_uzs']
+        if price is None or price <= 0:
+            raise FinanceError('Сначала выберите положительную цену билета для игры')
+        payments = []
+        for method in METHODS:
+            row = rows.get(method, {'players':0})
+            if row.get('amount_uzs') is not None:
+                raise FinanceError('Суммы рассчитываются только по выбранной цене игры')
+            players = integer(row['players'],500,'Оплатило игроков')
+            amount = integer(players*price,10**12,'Сумма')
+            payments.append({'method':method,'players':players,'amount_uzs':amount})
+        paid = sum(x['players'] for x in payments)
+        integer(paid,500,'Итого')
+        if total is not None and integer(total,500,'Итого') != paid:
+            raise FinanceError('«Итого» не совпадает с суммой игроков. Ничего не сохранено')
+        if t['actual_players'] is not None and paid > t['actual_players']:
+            raise FinanceError(f"Оплативших {paid}, а пришло {t['actual_players']}. Ничего не сохранено")
+        return t, settings, payments
+
+    def preview_payments(self, team_id, rows, total, revision, price_revision):
+        """Consistent read-only calculation; no payment or audit writes."""
+        with self.connect() as c:
+            c.execute('BEGIN')
+            _, settings, payments = self._priced_payments(c, team_id, rows, total, revision, price_revision)
+            return {'ticket_uzs':settings['ticket_uzs'], 'payments':payments}
+
+    def batch_payment(self, team_id, rows, total, revision, price_revision, actor, operation):
+        """Confirm ALL methods atomically, rechecking price and team revisions."""
         with self.mutation(operation) as c:
             if c is None:
                 return
-            t = self._team(c,team_id)
-            self._revision(t,revision)
-            settings = dict(c.execute('SELECT * FROM finance_games WHERE event_id=?',(t['event_id'],)).fetchone())
-            if settings['revision'] != price_revision:
-                raise FinanceError('Цена игры изменилась. Откройте карточку команды заново')
-            if t['actual_players'] is None:
-                raise FinanceError('Сначала укажите фактическую явку команды')
-            payments = []
-            for method in METHODS:
-                row = rows.get(method,{'players':0,'amount_uzs':0})
-                players = integer(row['players'],500,'Оплатило игроков')
-                amount = row.get('amount_uzs')
-                if amount is None:
-                    if players and not settings['ticket_uzs']:
-                        raise FinanceError('Задайте цену билета или сумму в строке: Узум 2 = 130000')
-                    amount = players*(settings['ticket_uzs'] or 0)
-                integer(amount,10**12,'Сумма')
-                if (players == 0) != (amount == 0):
-                    raise FinanceError('Число оплативших и сумма должны быть положительными либо оба равны нулю')
-                payments.append({'method':method,'players':players,'amount_uzs':amount})
-            paid = sum(x['players'] for x in payments)
-            if total is not None and integer(total,500,'Итого') != paid:
-                raise FinanceError('«Итого» не совпадает с суммой игроков. Ничего не сохранено')
-            if paid > t['actual_players']:
-                raise FinanceError(f"Оплативших {paid}, а пришло {t['actual_players']}. Ничего не сохранено")
+            t, settings, payments = self._priced_payments(c, team_id, rows, total, revision, price_revision)
             before = [dict(r) for r in c.execute('SELECT * FROM finance_payments WHERE team_id=?',(team_id,))]
             for p in payments:
                 c.execute('''INSERT INTO finance_payments(team_id,method,players,amount_uzs) VALUES(?,?,?,?)

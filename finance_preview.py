@@ -4,6 +4,7 @@ Never run against the production bot or database. No scheduler, broadcasts,
 legacy backup restoration, analytics, or real booking data are used here.
 """
 import asyncio
+from contextlib import closing, contextmanager
 from datetime import datetime
 import logging
 import os
@@ -22,6 +23,8 @@ from handlers.finance_admin import AdminPrivate, create_router
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 
+PREVIEW_PATH = '/data/razumboy-finance-preview-v2.sqlite'
+
 
 def preview_menu():
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="👥 Явка")],[KeyboardButton(text="🆕 Новый тест")]], resize_keyboard=True)
@@ -32,11 +35,16 @@ class PreviewDatabase(Database):
         # The production Database embeds historical data. Do not load it here.
         pass
 
+    @contextmanager
+    def _connect(self):
+        with closing(super()._connect()) as conn, conn:
+            yield conn
+
 
 def check_preview_identity(username, environment, path):
     if username.lower() != 'razumboy_test_bot' or environment != 'staging':
         raise ValueError('Finance preview requires Razumboy_Test_Bot in staging')
-    if Path(path).resolve() != Path('/data/razumboy-finance-preview.sqlite'):
+    if Path(path).as_posix() != PREVIEW_PATH or (os.name != 'nt' and Path(path).resolve().as_posix() != PREVIEW_PATH):
         raise ValueError('Finance preview requires its dedicated synthetic database')
 
 

@@ -1,3 +1,4 @@
+from contextlib import closing
 """Synthetic ledger data only; no credentials, live database or provider calls."""
 import concurrent.futures
 import csv
@@ -11,7 +12,7 @@ from finance import FinanceStore, FinanceError, TEMPLATES, format_report, export
 
 
 def fixture(path):
-    with sqlite3.connect(path) as c:
+    with closing(sqlite3.connect(path)) as c, c:
         c.executescript('''
         CREATE TABLE events(id INTEGER PRIMARY KEY,title TEXT,event_date TEXT);
         CREATE TABLE registrations(id INTEGER PRIMARY KEY,event_id INTEGER,team_name TEXT,team_size INTEGER,status TEXT);
@@ -38,7 +39,7 @@ class FinanceTests(unittest.TestCase):
         return f'test-operation-{self.seq}'
 
     def test_additive_idempotent_init_preserves_bookings_unknown_not_zero(self):
-        with sqlite3.connect(self.path) as c:
+        with closing(sqlite3.connect(self.path)) as c, c:
             before = c.execute('SELECT * FROM registrations').fetchall()
         self.f.prepare(50)
         FinanceStore(self.path).prepare(50)
@@ -50,7 +51,7 @@ class FinanceTests(unittest.TestCase):
         self.assertEqual(s['pending_expenses'],6)
         self.assertEqual(len(s['expenses']),len(TEMPLATES))
         self.assertTrue(all(x['amount_uzs'] is None for x in s['expenses']))
-        with sqlite3.connect(self.path) as c:
+        with closing(sqlite3.connect(self.path)) as c, c:
             self.assertEqual(before,c.execute('SELECT * FROM registrations').fetchall())
             self.assertEqual(c.execute('PRAGMA integrity_check').fetchone()[0],'ok')
 
@@ -177,7 +178,7 @@ class FinanceTests(unittest.TestCase):
         from sqlite_fixture import TestDatabase
         path=Path(self.tmp.name)/'real_schema.sqlite'
         TestDatabase(str(path))
-        with sqlite3.connect(path) as c:
+        with closing(sqlite3.connect(path)) as c, c:
             c.execute("INSERT INTO events(id,title,event_date,event_time,location) VALUES(50,'Synthetic','2099-01-01','19:00','Test')")
             tables=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
             before={t:c.execute('SELECT * FROM "'+t+'" ORDER BY rowid').fetchall() for t in tables}
@@ -187,7 +188,7 @@ class FinanceTests(unittest.TestCase):
         t=f.snapshot(50)['teams'][0]['id']
         f.attendance(t,2,0,42,'real-schema-attendance')
         f.payment(t,'card',2,180000,1,42,'real-schema-payment')
-        with sqlite3.connect(path) as c:
+        with closing(sqlite3.connect(path)) as c, c:
             after={t:c.execute('SELECT * FROM "'+t+'" ORDER BY rowid').fetchall() for t in tables}
             self.assertEqual(before,after)
             self.assertEqual(c.execute('PRAGMA integrity_check').fetchone()[0],'ok')

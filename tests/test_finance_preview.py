@@ -9,11 +9,11 @@ from finance_preview import check_preview_identity, seed_demo
 class PreviewTests(unittest.TestCase):
     def test_production_bot_environment_and_paths_rejected(self):
         for username, env, path in [
-            ('Razumboy_Bot','staging','/data/razumboy-finance-preview.sqlite'),
-            ('Razumboy_Test_Bot','production','/data/razumboy-finance-preview.sqlite'),
+            ('Razumboy_Bot','staging','/data/razumboy-finance-preview-v2.sqlite'),
+            ('Razumboy_Test_Bot','production','/data/razumboy-finance-preview-v2.sqlite'),
             ('Razumboy_Test_Bot','staging','/data/razumboy.db')]:
             with self.assertRaises(ValueError): check_preview_identity(username,env,path)
-        check_preview_identity('Razumboy_Test_Bot','staging','/data/razumboy-finance-preview.sqlite')
+        check_preview_identity('Razumboy_Test_Bot','staging','/data/razumboy-finance-preview-v2.sqlite')
 
     def test_demo_is_synthetic_repeatable_and_new_attempt_preserves_old(self):
         with tempfile.TemporaryDirectory() as tmp:

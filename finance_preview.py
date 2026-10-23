@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import SimpleEventIsolation
@@ -68,6 +68,52 @@ def seed_demo(path, *, fresh=False):
     return event_id
 
 
+
+def create_preview_dispatcher(db, admin_ids):
+    dp = Dispatcher(events_isolation=SimpleEventIsolation())
+    dp['db'], dp['admin_ids'] = db, admin_ids
+    dp.include_router(create_router())
+
+    async def denied(message):
+        logging.getLogger(__name__).info('finance_preview_access_denied')
+        await message.answer('Доступ к тесту для этого Telegram-аккаунта пока не настроен.\n'
+                             f'Ваш Telegram ID: <code>{message.from_user.id}</code>\n'
+                             'Передайте этот ID администратору для проверки доступа')
+
+    async def welcome(message, state: FSMContext):
+        if message.from_user.id not in admin_ids:
+            await denied(message)
+            return
+        await state.clear()
+        await message.answer('🧪 <b>Тест явки и финансов</b>\nЗдесь только вымышленные данные. Рабочая игра не изменяется.\n'
+                             'Нажмите 👥 Явка и выберите тестовую игру. Новая пустая попытка: /newdemo', reply_markup=preview_menu())
+
+    async def new_demo(message, state: FSMContext):
+        await state.clear()
+        ident = await asyncio.to_thread(seed_demo,db.db_path,fresh=True)
+        await message.answer(f'Создан новый тест #{ident}. Старые тесты сохранены. Нажмите 👥 Явка',reply_markup=preview_menu())
+
+    # Telegram clients can drop the optional VS16 emoji presentation selector.
+    private = F.chat.type == 'private'
+    legacy_admin = F.text.regexp(r'^(?:⚙\ufe0f?\s*)?Панель администратора$')
+    dp.message.register(welcome,private,Command('start','help'))
+    dp.message.register(welcome,private,legacy_admin | (F.text == '🏠 Главное меню'))
+    dp.message.register(new_demo,AdminPrivate(),Command('newdemo'))
+    dp.message.register(new_demo,AdminPrivate(),F.text == '🆕 Новый тест')
+
+    async def fallback(message):
+        if message.from_user.id not in admin_ids:
+            await denied(message)
+        else:
+            await message.answer('Это тестовый режим явки и финансов. Нажмите /start, чтобы обновить клавиатуру и открыть 👥 Явка', reply_markup=preview_menu())
+
+    # Child-router fallback must follow finance; a parent catch-all would swallow FSM input.
+    tail = Router(name='finance_preview_fallback')
+    tail.message.register(fallback,private)
+    dp.include_router(tail)
+    return dp
+
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     config = load_config()
@@ -81,25 +127,7 @@ async def main():
             raise ValueError('Preview requires configured admin recipients')
         event_id = await asyncio.to_thread(seed_demo,config.db_path)
         db = PreviewDatabase(config.db_path)
-        dp = Dispatcher(events_isolation=SimpleEventIsolation())
-        dp['db'], dp['admin_ids'] = db, config.admin_ids
-        dp.include_router(create_router())
-
-        async def welcome(message, state: FSMContext):
-            await state.clear()
-            await message.answer('🧪 <b>Тест явки и финансов</b>\nЗдесь только вымышленные данные. Рабочая игра не изменяется.\n'
-                                 'Нажмите 👥 Явка и выберите тестовую игру. Новая пустая попытка: /newdemo', reply_markup=preview_menu())
-
-        async def new_demo(message, state: FSMContext):
-            await state.clear()
-            ident = await asyncio.to_thread(seed_demo,config.db_path,fresh=True)
-            await message.answer(f'Создан новый тест #{ident}. Старые тесты сохранены. Нажмите 👥 Явка',reply_markup=preview_menu())
-
-        # The preview exposes only finance routes and demo navigation, no broadcasts.
-        dp.message.register(welcome,AdminPrivate(),Command('start','help'))
-        dp.message.register(welcome,AdminPrivate(),F.text.in_({'⚙️ Панель администратора','🏠 Главное меню'}))
-        dp.message.register(new_demo,AdminPrivate(),Command('newdemo'))
-        dp.message.register(new_demo,AdminPrivate(),F.text == '🆕 Новый тест')
+        dp = create_preview_dispatcher(db, config.admin_ids)
         print(f'FINANCE_PREVIEW_READY bot={me.username} demo_event={event_id} scheduler=off',flush=True)
         await dp.start_polling(bot)
     finally:

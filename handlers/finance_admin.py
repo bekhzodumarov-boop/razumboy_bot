@@ -11,12 +11,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
-from finance import FinanceStore, FinanceError, METHODS, export_csv, format_report, money, parse_integer
+from finance import FinanceStore, FinanceError, METHODS, export_csv, format_report, money, parse_integer, parse_payment_lines
 
 log = logging.getLogger(__name__)
 
 
 class FinanceState(StatesGroup):
+    quick = State()
     value = State()
     amount = State()
     confirm = State()
@@ -93,7 +94,7 @@ async def game_page(message, db, event_id, page=0):
                          'Выберите команду, чтобы отметить явку и оплаты', reply_markup=kb(buttons))
 
 
-async def team_page(message, db, team_id):
+async def team_page(message, db, team_id, state=None):
     t = await store_call(db, 'team', team_id)
     actual = 'не отмечена' if t['actual_players'] is None else 'не пришли' if not t['actual_players'] else f"{t['actual_players']} чел."
     lines = [f"👥 <b>{esc(t['name'])}</b>", f'Фактическая явка: {actual}', '',
@@ -105,13 +106,26 @@ async def team_page(message, db, team_id):
     methods = [(f'💵 {label}', f'af:pay:{team_id}:{method}') for method, label in METHODS.items()]
     buttons += [methods[:3], methods[3:]]
     s = await store_call(db, 'snapshot', t['event_id'])
+    if state is not None:
+        await state.set_state(FinanceState.quick)
+        await state.set_data({'finance_team':{'team_id':team_id,'event_id':t['event_id'],
+                                            'revision':t['revision'],'price_revision':s['settings']['revision']}})
     ids = [x['id'] for x in s['teams']]
     index = ids.index(team_id)
     if index + 1 < len(ids):
         buttons += [[('➡️ Следующая команда', f'af:t:{ids[index+1]}')]]
     buttons += [[('🔙 К списку команд', f"af:g:{t['event_id']}"), ('📊 Итоги игры', f"af:report:{t['event_id']}")]]
-    lines += ['', 'Запись оплаты заменяет итог выбранного способа, а не прибавляет к нему.',
-              'Скидки учитывайте фактической суммой. Бесплатные места не отмечайте как оплатившие.']
+    paid = sum(p['players'] for p in t['payments'].values())
+    amount = sum(p['amount_uzs'] for p in t['payments'].values())
+    price = s['settings'].get('ticket_uzs')
+    lines += ['', f'Всего оплачено: {paid} чел. / {money(amount)}',
+              f"Цена билета: {money(price) if price is not None else 'не задана'}",
+              '', '<b>Оплаты одним сообщением, без подтверждений:</b>',
+              '<code>Узум 2\nКлик 4\nИтого 6</code>',
+              '«Итого» можно не писать. Суммы считаются по цене билета.',
+              '<b>Сообщение заменяет все оплаты этой команды. Неуказанные способы обнуляются.</b>',
+              'Для скидки укажите сумму: <code>Узум 2 = 130000</code>. Бесплатные места не включайте.',
+              'Кнопки ниже оставлены для изменения одного способа отдельно.']
     await message.answer('\n'.join(lines), reply_markup=kb(buttons))
 
 
@@ -189,7 +203,7 @@ async def callback(callback, state: FSMContext, db):
             await state.clear()
             await callback.answer('Ввод отменен')
             if d.get('team_id'):
-                await team_page(callback.message, db, d['team_id'])
+                await team_page(callback.message, db, d['team_id'], state)
             return
         if action == 'amount':
             d = (await state.get_data()).get('finance_draft')
@@ -227,7 +241,7 @@ async def callback(callback, state: FSMContext, db):
             if kind == 'payment':
                 await callback.message.answer(f"✅ Оплата сохранена: {METHODS[d['method']]} · {d['players']} чел. · {money(d['amount'])}\nУчтена в итогах игры")
             if kind in ('attendance', 'payment'):
-                await team_page(callback.message, db, d['team_id'])
+                await team_page(callback.message, db, d['team_id'], state)
             elif kind in ('expense', 'expense_kind', 'rename', 'cost', 'distribution'):
                 await expenses_page(callback.message, db, d['event_id'], kind=d.get('category','distribution' if kind=='distribution' else 'cost'))
             else:
@@ -258,7 +272,7 @@ async def callback(callback, state: FSMContext, db):
         elif action == 'g':
             await game_page(callback.message, db, ident, page)
         elif action == 't':
-            await team_page(callback.message, db, ident)
+            await team_page(callback.message, db, ident, state)
         elif action in ('expenses','distributions'):
             await expenses_page(callback.message, db, ident, page, kind='cost' if action=='expenses' else 'distribution')
         elif action == 'x':
@@ -404,6 +418,28 @@ async def value(message, state: FSMContext, db):
         await message.answer('Хранилище временно недоступно. Данные не подтверждены, повторите ввод')
 
 
+async def quick_payment(message, state: FSMContext, db):
+    context = (await state.get_data()).get('finance_team')
+    if not context:
+        await state.clear()
+        await message.answer('Откройте карточку нужной команды в разделе 👥 Явка')
+        return
+    try:
+        rows,total = parse_payment_lines(message.text)
+        operation = f'quickpay:{message.chat.id}:{message.message_id}:{context["team_id"]}'
+        await store_call(db,'batch_payment',context['team_id'],rows,total,context['revision'],
+                         context['price_revision'],message.from_user.id,operation)
+        await message.answer('✅ Оплаты сохранены одним сообщением. Итоги игры обновлены')
+        await team_page(message,db,context['team_id'],state)
+    except FinanceError as error:
+        await message.answer(esc(error)+'\nНичего не изменено. Исправьте сообщение и отправьте заново. '
+                             'Для выбора другой команды откройте 👥 Явка', reply_markup=kb([
+                                 [('🔄 Открыть карточку заново',f'af:t:{context["team_id"]}')]]))
+    except sqlite3.Error:
+        log.warning('finance_storage_unavailable')
+        await message.answer('Не удалось подтвердить сохранение. Отправьте сообщение повторно: значения заменяются, а не складываются')
+
+
 def create_router():
     router = Router(name='attendance_finance')
     router.message.filter(AdminPrivate())
@@ -413,4 +449,5 @@ def create_router():
     router.message.register(cancel_message, StateFilter(FinanceState), Command('cancel'))
     router.callback_query.register(callback, F.data.startswith('af:'))
     router.message.register(value, StateFilter(FinanceState.value, FinanceState.amount, FinanceState.confirm))
+    router.message.register(quick_payment, StateFilter(FinanceState.quick), F.text)
     return router

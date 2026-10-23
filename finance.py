@@ -44,6 +44,40 @@ def money(value):
     return f'{value:,}'.replace(',', ' ') + ' сум'
 
 
+def parse_payment_lines(text):
+    """Complete team payment breakdown; optional explicit amount after '='."""
+    aliases = {'uzum':'uzum','узум':'uzum', 'payme':'payme','пейми':'payme',
+               'пайми':'payme','пейме':'payme','пайме':'payme','пэйми':'payme',
+               'click':'click','клик':'click','карта':'card','перевод':'card',
+               'перевод на карту':'card','наличные':'cash','нал':'cash','наличка':'cash'}
+    rows, total = {}, None
+    if not text or len(text)>2000:
+        raise FinanceError('Отправьте способы и количество игроков, по одному на строку')
+    for line in re.split(r'[\n;]',text):
+        line = ' '.join(line.lower().split()).strip()
+        if not line:
+            continue
+        match = re.fullmatch(r'итого\s*:?\s*([0-9]+)',line)
+        if match:
+            if total is not None:
+                raise FinanceError('Строка «Итого» должна быть только одна')
+            total = parse_integer(match[1],500)
+            continue
+        match = re.fullmatch(r'([a-zа-я ]+?)\s*:?\s+([0-9]+)(?:\s*=\s*([0-9 ,_\u00a0\u202f]+))?',line)
+        if not match or match[1] not in aliases:
+            raise FinanceError('Не понял строку. Пример: Узум 2. Для другой суммы: Узум 2 = 130000')
+        method = aliases[match[1]]
+        if method in rows:
+            raise FinanceError(f'{METHODS[method]} указан дважды. Оставьте одну строку с итогом')
+        rows[method] = {'players':parse_integer(match[2],500),
+                        'amount_uzs':parse_integer(match[3],10**12) if match[3] else None}
+    if not rows:
+        raise FinanceError('Укажите хотя бы один способ оплаты, например: Узум 2')
+    if total is not None and total != sum(x['players'] for x in rows.values()):
+        raise FinanceError('«Итого» не совпадает с суммой игроков по способам. Ничего не сохранено')
+    return rows, total
+
+
 class FinanceStore:
     def __init__(self, path):
         self.path = str(path)
@@ -203,6 +237,47 @@ class FinanceStore:
             self._revision(row, revision)
             c.execute('UPDATE finance_games SET ticket_uzs=?,revision=revision+1 WHERE event_id=?', (amount, event_id))
             self._audit(c, operation, event_id, actor, 'ticket_price', row, {'ticket_uzs': amount})
+
+    def batch_payment(self, team_id, rows, total, revision, price_revision, actor, operation):
+        """Atomically replace ALL methods, priced inside the same transaction."""
+        if not rows or any(method not in METHODS for method in rows):
+            raise FinanceError('Неизвестный или пустой список способов оплаты')
+        with self.mutation(operation) as c:
+            if c is None:
+                return
+            t = self._team(c,team_id)
+            self._revision(t,revision)
+            settings = dict(c.execute('SELECT * FROM finance_games WHERE event_id=?',(t['event_id'],)).fetchone())
+            if settings['revision'] != price_revision:
+                raise FinanceError('Цена игры изменилась. Откройте карточку команды заново')
+            if t['actual_players'] is None:
+                raise FinanceError('Сначала укажите фактическую явку команды')
+            payments = []
+            for method in METHODS:
+                row = rows.get(method,{'players':0,'amount_uzs':0})
+                players = integer(row['players'],500,'Оплатило игроков')
+                amount = row.get('amount_uzs')
+                if amount is None:
+                    if players and not settings['ticket_uzs']:
+                        raise FinanceError('Задайте цену билета или сумму в строке: Узум 2 = 130000')
+                    amount = players*(settings['ticket_uzs'] or 0)
+                integer(amount,10**12,'Сумма')
+                if (players == 0) != (amount == 0):
+                    raise FinanceError('Число оплативших и сумма должны быть положительными либо оба равны нулю')
+                payments.append({'method':method,'players':players,'amount_uzs':amount})
+            paid = sum(x['players'] for x in payments)
+            if total is not None and integer(total,500,'Итого') != paid:
+                raise FinanceError('«Итого» не совпадает с суммой игроков. Ничего не сохранено')
+            if paid > t['actual_players']:
+                raise FinanceError(f"Оплативших {paid}, а пришло {t['actual_players']}. Ничего не сохранено")
+            before = [dict(r) for r in c.execute('SELECT * FROM finance_payments WHERE team_id=?',(team_id,))]
+            for p in payments:
+                c.execute('''INSERT INTO finance_payments(team_id,method,players,amount_uzs) VALUES(?,?,?,?)
+                    ON CONFLICT(team_id,method) DO UPDATE SET players=excluded.players,amount_uzs=excluded.amount_uzs''',
+                    (team_id,p['method'],p['players'],p['amount_uzs']))
+            c.execute('UPDATE finance_teams SET revision=revision+1 WHERE id=?',(team_id,))
+            self._audit(c,operation,t['event_id'],actor,'payment_breakdown',before,
+                        {'team_id':team_id,'payments':payments,'ticket_uzs':settings['ticket_uzs']})
 
     def expense(self, expense_id, amount, status, revision, actor, operation):
         if status not in ('confirmed', 'excluded'):

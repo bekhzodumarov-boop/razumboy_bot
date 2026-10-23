@@ -296,6 +296,55 @@ class FinanceFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Поступления: <b>140 000 сум</b>',self.transport.calls[-2].text)
         self.assertNotIn('Это тестовый режим',self.output())
 
+    async def test_one_message_payment_saved_without_callback_and_visible_in_report(self):
+        from finance_preview import create_preview_dispatcher
+        await self.dp.storage.close()
+        await self.dp.fsm.events_isolation.close()
+        self.dp=create_preview_dispatcher(self.db,[42])
+        self.addAsyncCleanup(self.dp.storage.close)
+        self.addAsyncCleanup(self.dp.fsm.events_isolation.close)
+        t=await self.open_game()
+        self.store.attendance(t,6,0,42,'seed-att')
+        self.store.ticket(50,70000,0,42,'seed-price')
+        await self.feed(callback=f'af:t:{t}')
+        await self.feed(text='Узум 2\nКлик 4\nИтого 6')
+        self.seq -= 1
+        await self.feed(text='Узум 2\nКлик 4\nИтого 6')
+        with self.store.connect() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM finance_audit WHERE action='payment_breakdown'").fetchone()[0],1)
+        self.assertEqual((self.store.snapshot(50)['paid_players'],self.store.snapshot(50)['income_uzs']),(6,420000))
+        self.assertIn('Всего оплачено: 6 чел. / 420 000 сум',self.transport.calls[-1].text)
+        await self.feed(callback='af:report:50')
+        self.assertIn('Поступления: <b>420 000 сум</b>',self.transport.calls[-2].text)
+        await self.feed(callback=f'af:t:{t}')
+        await self.feed(text='Payme 6 = 400000')
+        self.assertEqual(self.store.snapshot(50)['income_uzs'],400000)
+        self.assertEqual(self.store.team(t)['payments']['uzum']['players'],0)
+
+    async def test_quick_payment_errors_unauthorized_and_context_navigation(self):
+        t=await self.open_game()
+        self.store.attendance(t,6,0,42,'seed-att')
+        self.store.ticket(50,70000,0,42,'seed-price')
+        await self.feed(callback=f'af:t:{t}')
+        await self.feed(text='Узум 2\nКлик 4\nИтого 5')
+        self.assertEqual(self.store.snapshot(50)['income_uzs'],0)
+        await self.feed(text='Узум 2\nКлик 4',user=99)
+        self.assertEqual(self.store.snapshot(50)['income_uzs'],0)
+        self.store.attendance(t,5,1,43,'other-admin-change')
+        await self.feed(text='Узум 2\nКлик 4')
+        self.assertIn('другим админом',self.output())
+        self.assertEqual(self.store.snapshot(50)['income_uzs'],0)
+        await self.feed(callback=f'af:t:{t}')
+        await self.feed(text='Узум 2\nКлик 3')
+        other=self.store.snapshot(50)['teams'][1]['id']
+        await self.feed(callback=f'af:t:{other}')
+        await self.feed(text='Нал 2')
+        self.assertIn('Сначала укажите фактическую явку',self.output())
+        self.assertEqual(self.store.team(t)['payments']['click']['players'],3)
+        await self.feed(callback='af:g:50')
+        await self.feed(text='Узум 1')
+        self.assertEqual(self.store.snapshot(50)['income_uzs'],350000)
+
     async def test_storage_restart_loses_only_unconfirmed_draft(self):
         t=await self.open_game()
         await self.feed(callback=f'af:att:{t}')

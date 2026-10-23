@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from finance import FinanceStore, FinanceError, parse_payment_lines
+from finance import FinanceStore, FinanceError, parse_payment_lines, format_report
 from test_finance import fixture
 
 
@@ -107,3 +107,13 @@ class QuickPaymentTests(unittest.TestCase):
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
             self.assertEqual(sum(pool.map(save,[42,43])),1)
         self.assertEqual(self.f.snapshot(50)['income_uzs'],210000)
+
+    def test_report_keeps_unknown_attendance_payments_out_of_known_unpaid_count(self):
+        self.write('Узум 6')
+        other = self.f.snapshot(50)['teams'][1]['id']
+        self.f.attendance(other,3,0,42,'known-attendance')
+        self.f.payment(other,'cash',1,70000,1,42,'known-payment')
+        report = format_report(self.f.snapshot(50))
+        self.assertIn('без отметки оплаты: 2 (включая возможные льготы)',report)
+        self.assertIn('Оплативших отмечено: 7',report)
+        self.assertIn('Поступления: <b>490 000 сум</b>',report)

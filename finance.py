@@ -395,13 +395,20 @@ class FinanceStore:
 
 def format_report(s):
     e = s['event']
+    # Payments from teams with unknown attendance cannot be subtracted from
+    # the attendance total of other, already checked-in teams.
+    paid_by_team = {}
+    for p in s['payments']:
+        paid_by_team[p['team_id']] = paid_by_team.get(p['team_id'],0) + p['players']
+    unpaid_known = sum(t['actual_players'] - paid_by_team.get(t['id'],0)
+                       for t in s['teams'] if t['actual_players'] is not None)
     lines = [f"📊 <b>Игра #{e['id']}: {html.escape(str(e['title'])[:200])}</b>",
              f"Дата: {html.escape(str(e['event_date']))}",
              f"Заявки: {s['registered_teams']} команд / {s['registered_players']} игроков",
              f"Подтвержденная явка: {s['arrived_teams']} команд / {s['actual_players']} игроков",
              f"Явка не отмечена: {s['unknown_teams']} записей",
              f"Оплативших отмечено: {s['paid_players']}",
-             f"Явка без отметки оплаты: {s['actual_players']-s['paid_players']} (включая возможные льготы)", '']
+             f"Среди команд с отмеченной явкой без отметки оплаты: {unpaid_known} (включая возможные льготы)", '']
     for method, label in METHODS.items():
         v = s['by_method'][method]
         lines.append(f"{label}: {v['players']} чел. / {money(v['amount_uzs'])}")

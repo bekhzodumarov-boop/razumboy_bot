@@ -102,8 +102,14 @@ async def team_page(message, db, team_id):
         p = t['payments'].get(method, {})
         lines.append(f"{label}: {p.get('players',0)} чел. / {money(p.get('amount_uzs',0))}")
     buttons = [[('👥 Указать явку', f'af:att:{team_id}')], [('↩️ Снять отметку явки', f'af:unknown:{team_id}')]]
-    buttons += [[(f'💵 {label}', f'af:pay:{team_id}:{method}')] for method, label in METHODS.items()]
-    buttons += [[('🔙 К игре', f"af:g:{t['event_id']}")]]
+    methods = [(f'💵 {label}', f'af:pay:{team_id}:{method}') for method, label in METHODS.items()]
+    buttons += [methods[:3], methods[3:]]
+    s = await store_call(db, 'snapshot', t['event_id'])
+    ids = [x['id'] for x in s['teams']]
+    index = ids.index(team_id)
+    if index + 1 < len(ids):
+        buttons += [[('➡️ Следующая команда', f'af:t:{ids[index+1]}')]]
+    buttons += [[('🔙 К списку команд', f"af:g:{t['event_id']}"), ('📊 Итоги игры', f"af:report:{t['event_id']}")]]
     lines += ['', 'Запись оплаты заменяет итог выбранного способа, а не прибавляет к нему.',
               'Скидки учитывайте фактической суммой. Бесплатные места не отмечайте как оплатившие.']
     await message.answer('\n'.join(lines), reply_markup=kb(buttons))
@@ -153,8 +159,11 @@ async def preview(message, state, draft, text):
     nonce = secrets.token_hex(6)
     await state.set_state(FinanceState.confirm)
     await state.set_data({'finance_draft': {**draft, 'nonce': nonce}})
-    await message.answer(text+'\n\nСохранить?', reply_markup=kb([
-        [('✅ Сохранить', f'af:save:{nonce}')], [('🔙 Отмена', 'af:cancel')]]))
+    rows = [[('✅ Сохранить', f'af:save:{nonce}')]]
+    if draft['kind'] == 'payment' and draft.get('players', 0):
+        rows += [[('✏️ Другая сумма', f'af:amount:{nonce}')]]
+    rows += [[('🔙 Отмена', 'af:cancel')]]
+    await message.answer(text+'\n\nПока не сохранено. Нажмите «Сохранить», чтобы учесть в итогах игры.', reply_markup=kb(rows))
 
 
 async def entry(message, state: FSMContext, db):
@@ -176,8 +185,21 @@ async def callback(callback, state: FSMContext, db):
         parts = callback.data.split(':')
         action = parts[1]
         if action == 'cancel':
+            d = (await state.get_data()).get('finance_draft', {})
             await state.clear()
             await callback.answer('Ввод отменен')
+            if d.get('team_id'):
+                await team_page(callback.message, db, d['team_id'])
+            return
+        if action == 'amount':
+            d = (await state.get_data()).get('finance_draft')
+            if not d or d.get('kind') != 'payment' or not secrets.compare_digest(d.get('nonce',''), parts[2]):
+                raise FinanceError('Эта кнопка устарела. Откройте карточку заново')
+            d.pop('nonce', None)
+            await state.set_data({'finance_draft':d})
+            await state.set_state(FinanceState.amount)
+            await callback.message.answer('Введите фактически полученную сумму в сумах для этой оплаты. Затем подтвердите сохранение.', reply_markup=kb([[('🔙 Отмена', 'af:cancel')]]))
+            await callback.answer()
             return
         if action == 'save':
             data = await state.get_data()
@@ -202,6 +224,8 @@ async def callback(callback, state: FSMContext, db):
                 await store_call(db, 'add', d['event_id'], d['title'], kind, d.get('amount'), actor, op)
             await state.clear()
             await callback.answer('Сохранено')
+            if kind == 'payment':
+                await callback.message.answer(f"✅ Оплата сохранена: {METHODS[d['method']]} · {d['players']} чел. · {money(d['amount'])}\nУчтена в итогах игры")
             if kind in ('attendance', 'payment'):
                 await team_page(callback.message, db, d['team_id'])
             elif kind in ('expense', 'expense_kind', 'rename', 'cost', 'distribution'):
@@ -209,7 +233,19 @@ async def callback(callback, state: FSMContext, db):
             else:
                 await game_page(callback.message, db, d['event_id'])
             return
-        # Navigating away invalidates any previous draft and its confirm button.
+        # Never silently discard an incomplete payment when an older menu is tapped.
+        draft = (await state.get_data()).get('finance_draft')
+        if draft and draft.get('kind') == 'payment':
+            rows = []
+            if await state.get_state() == FinanceState.confirm.state:
+                rows += [[('✅ Сохранить', f"af:save:{draft['nonce']}")]]
+                if draft.get('players'):
+                    rows += [[('✏️ Другая сумма', f"af:amount:{draft['nonce']}")]]
+            rows += [[('❌ Отменить ввод оплаты', 'af:cancel')]]
+            await callback.message.answer('Оплата еще не сохранена. Завершите текущий ввод или отмените его перед переходом. В итогах учитываются только сохраненные оплаты.', reply_markup=kb(rows))
+            await callback.answer('Сначала завершите текущую оплату')
+            return
+        # Other navigation invalidates previous non-payment drafts.
         await state.clear()
         ident = int(parts[2])
         if not 0 <= ident < 2**63:
@@ -232,7 +268,7 @@ async def callback(callback, state: FSMContext, db):
             if action == 'csv':
                 await callback.message.answer_document(BufferedInputFile(export_csv(s), filename=f'game_{ident}_finance.csv'), caption='Явка, оплаты и расходы. Только ручной учет в UZS')
             else:
-                await callback.message.answer(format_report(s))
+                await callback.message.answer(format_report(s), reply_markup=kb([[('🔄 Обновить итоги', f'af:report:{ident}')], [('👥 К списку команд', f'af:g:{ident}')]]))
         elif action in ('att','unknown','pay'):
             t = await store_call(db, 'team', ident)
             d = {'team_id': ident, 'event_id': t['event_id'], 'revision': t['revision']}
@@ -256,9 +292,18 @@ async def callback(callback, state: FSMContext, db):
                 await callback.message.answer(f'<b>{esc(t["name"])}</b>\n{prompt}\n/cancel — отменить')
         elif action == 'price':
             s = await store_call(db, 'snapshot', ident)
-            await state.set_state(FinanceState.value)
-            await state.set_data({'finance_draft':{'kind':'ticket','event_id':ident,'revision':s['settings']['revision']}})
-            await callback.message.answer('Введите базовую цену билета в сумах, целым числом. Это подсказка для ввода оплат; сохраненные суммы не пересчитываются. /cancel — отменить')
+            d = {'kind':'ticket','event_id':ident,'revision':s['settings']['revision']}
+            choice = parts[3] if len(parts)>3 else None
+            if choice in ('70000','100000'):
+                await preview(callback.message, state, {**d,'amount':int(choice)}, 'Базовая цена: '+money(int(choice)))
+            elif choice == 'other':
+                await state.set_state(FinanceState.value)
+                await state.set_data({'finance_draft':d})
+                await callback.message.answer('Введите другую цену билета в сумах, целым числом. /cancel — отменить')
+            else:
+                await callback.message.answer('Выберите базовую цену билета. Она используется для расчета новых оплат; сохраненные суммы не пересчитываются.', reply_markup=kb([
+                    [('70 000 сум',f'af:price:{ident}:70000'),('100 000 сум',f'af:price:{ident}:100000')],
+                    [('✏️ Другая',f'af:price:{ident}:other')], [('🔙 К игре',f'af:g:{ident}')]]))
         elif action in ('expense','exclude','rename','kind'):
             x = await expense_page(callback.message, db, ident)
             d = {'kind':'rename' if action=='rename' else 'expense','expense_id':ident,'event_id':x['event_id'],'revision':x['revision'],'status':'confirmed','category':x['kind']}
@@ -294,6 +339,12 @@ async def value(message, state: FSMContext, db):
         return
     try:
         kind = d['kind']
+        if await state.get_state() == FinanceState.confirm.state:
+            await message.answer('Данные еще не сохранены. Нажмите кнопку подтверждения ниже.', reply_markup=kb([
+                [('✅ Сохранить', f"af:save:{d['nonce']}")],
+                *([[('✏️ Другая сумма',f"af:amount:{d['nonce']}")]] if kind=='payment' and d.get('players') else []),
+                [('🔙 Отмена','af:cancel')]]))
+            return
         if await state.get_state() == FinanceState.amount.state:
             if kind == 'payment' and message.text == 'По базовой цене':
                 s = await store_call(db, 'snapshot', d['event_id'])
@@ -326,6 +377,10 @@ async def value(message, state: FSMContext, db):
             await preview(message, state, d, f"Фактически пришло: {d['players']} чел." if d['players'] else 'Команда не пришла')
         elif kind == 'payment':
             d['players'] = parse_integer(message.text, 500)
+            t = await store_call(db, 'team', d['team_id'])
+            other_paid = sum(p['players'] for method,p in t['payments'].items() if method != d['method'])
+            if d['players'] + other_paid > (t['actual_players'] or 0):
+                raise FinanceError(f"Оплативших больше пришедших. Для этого способа доступно {(t['actual_players'] or 0)-other_paid} чел.")
             if not d['players']:
                 await preview(message, state, {**d,'amount':0}, f"Обнулить итог способа {METHODS[d['method']]} для команды? Запись сохранится в истории")
             else:
@@ -335,8 +390,10 @@ async def value(message, state: FSMContext, db):
                 price = s['settings'].get('ticket_uzs')
                 text = 'Введите фактически полученную ИТОГОВУЮ сумму этим способом в сумах, с учетом скидок'
                 if price is not None:
-                    text += f"\nПо базовой цене: {money(price*d['players'])}. Можно отправить текст: По базовой цене"
-                await message.answer(text+'\n/cancel — отменить')
+                    t = await store_call(db, 'team', d['team_id'])
+                    await preview(message, state, {**d,'amount':price*d['players']}, f"<b>{esc(t['name'])}</b>\n{METHODS[d['method']]}: {d['players']} чел. × {money(price)} = {money(price*d['players'])}\nПри скидке или другой фактической сумме нажмите «Другая сумма»")
+                else:
+                    await message.answer(text+'\n/cancel — отменить', reply_markup=kb([[('🔙 Отмена','af:cancel')]]))
         else:
             d['amount'] = parse_integer(message.text, 10**9 if kind=='ticket' else 10**12)
             await preview(message, state, d, ('Базовая цена: ' if kind=='ticket' else 'Фактическая сумма статьи: ')+money(d['amount']))
@@ -355,5 +412,5 @@ def create_router():
     router.message.register(entry, Command('attendance'))
     router.message.register(cancel_message, StateFilter(FinanceState), Command('cancel'))
     router.callback_query.register(callback, F.data.startswith('af:'))
-    router.message.register(value, StateFilter(FinanceState.value, FinanceState.amount))
+    router.message.register(value, StateFilter(FinanceState.value, FinanceState.amount, FinanceState.confirm))
     return router

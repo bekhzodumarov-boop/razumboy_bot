@@ -119,14 +119,18 @@ async def admin_funnel_digest(message: Message, db, admin_ids: list[int], comman
     if not is_admin(message.from_user.id, admin_ids):
         await message.answer("У вас нет доступа к отчётам.")
         return
-    argument = command.args.strip() if command and command.args else None
-    if argument and (not argument.isascii() or not argument.isdigit() or len(argument) > 19
-                     or not 0 < int(argument) < 2**63):
-        await message.answer('Использование: /report или /report ID игры')
+    args = command.args.split() if command and command.args else []
+    all_time = bool(args and args[-1].lower() == 'all')
+    if all_time:
+        args.pop()
+    argument = args[0] if len(args) == 1 else None
+    if len(args) > 1 or (argument and (not argument.isascii() or not argument.isdigit() or len(argument) > 19
+                     or not 0 < int(argument) < 2**63)):
+        await message.answer('Использование: /report · /report ID · /report ID all')
         return
     try:
         text = await asyncio.to_thread(format_digest, db.db_path,
-                                       event_id=int(argument) if argument else None)
+                                       event_id=int(argument) if argument else None, all_time=all_time)
         for part in split_digest(text):
             await message.answer(part, parse_mode='HTML')
     except Exception:

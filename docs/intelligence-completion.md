@@ -21,11 +21,20 @@ Based on production e276b59f, preserving its count-only payment flow.
 
 ## Verification
 
-122 offline Python tests pass, including actual aiogram routing, cancellation, invalid text revoking an old preview, atomic rollback, source matching and read-only export. No real Telegram messages or production payment writes were used for testing.
+127 offline Python tests pass, including actual aiogram routing, cancellation, invalid text revoking an old preview, atomic rollback, source matching and read-only export. No real Telegram messages or production payment writes were used for testing.
 
 ## Release state and settings
 
-Source branch: codex/complete-intelligence. Test Railway changes are staged, not deployed: its deployment confirmation was declined. Existing production remains pinned to e276b59f.
+Released 26 October 2026. Production is pinned to `323f1f99dc483ede7f05199b2f516697f7940a4e` on `codex/complete-intelligence`.
+
+- Staging deployment `c02bae64-a833-4cc6-a755-fe6e4348fc17`: SUCCESS. Synthetic ledger/export smoke test: 6 players / 420000 UZS, repeated confirmation idempotent.
+- Production deployment `872ce9c5-38e8-45b6-8d84-3dbbdf6ea5ab`: SUCCESS. Polling and all seven existing scheduler jobs started, no startup errors.
+- Main database and analytics journal backed up before bot startup, both downloaded outside Railway and SHA256/integrity/restore checked.
+- Live snapshot: 51 games, 370 confirmed registration records. Volosik booking for game 51 contains 11 players. Registration counts match release backup; historical payment income unchanged. No historical attendance/payment values were entered or reconciled.
+- Private dashboard deployed from `4fabb70b576fc7c4394fc1ced209f6cc993bfe91`, environment revision 2. Server bridge check returned connected; actual production payload passed dashboard validation. Eleven legacy individual booking groups with empty team names are displayed as guest groups, with no database edits.
+- Dashboard build and 17 tests pass. No live customer registration, payment or giveaway draw was created for testing. Browser visual QA and a real subscriber's manual click were not performed.
+
+The first staging build failed at BUILD_IMAGE without useful logs; the fresh build succeeded. Worker HTTP reads use redirect=manual and reject redirects explicitly, compatible with the hosted runtime. Future documentation commits do not change the pinned production code.
 
 Staging keeps its separate DB, @Razumboy_Test_Bot and disabled scheduler. Start bridge with DASHBOARD_BOT_ENTRY=finance_preview.py, PORT=8080 and its own DASHBOARD_BRIDGE_TOKEN. Production entry defaults to app.py. Do not copy preview data or credentials into production.
 

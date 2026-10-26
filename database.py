@@ -731,17 +731,26 @@ class Database:
 
     def update_team_size(self, registration_id: int, team_size: int):
         """Обновить количество игроков в регистрации."""
+        if type(team_size) is not int or not 1 <= team_size <= 20:
+            raise ValueError('Team size must be between 1 and 20')
         with self._connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
             conn.execute(
                 "UPDATE registrations SET team_size = ? WHERE id = ?",
                 (team_size, registration_id)
             )
+            conn.execute("""UPDATE confirmations SET confirmed_count=?,
+                         player_names=?, replied_at=CURRENT_TIMESTAMP
+                         WHERE registration_id=? AND confirmed_count IS NOT NULL
+                         AND COALESCE(player_names,'')!='declined' """,
+                         (team_size, f'{team_size} человек (изменено через Мои регистрации)', registration_id))
             conn.commit()
 
     # ── Подтверждения ─────────────────────────────────────────
 
     def save_confirmation(self, registration_id, confirmed_count, player_names):
         with self._connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
             conn.execute("""
                 INSERT INTO confirmations (registration_id, confirmed_count, player_names)
                 VALUES (?, ?, ?)
@@ -750,6 +759,9 @@ class Database:
                     player_names = excluded.player_names,
                     replied_at = CURRENT_TIMESTAMP
             """, (registration_id, confirmed_count, player_names))
+            if type(confirmed_count) is int and 1 <= confirmed_count <= 20 and player_names != 'declined':
+                conn.execute("UPDATE registrations SET team_size=? WHERE id=? AND status='confirmed'",
+                             (confirmed_count,registration_id))
             conn.commit()
 
     def get_confirmation(self, registration_id) -> Optional[sqlite3.Row]:

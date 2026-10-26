@@ -81,6 +81,38 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
     async def feed(self, update):
         return await self.dp.feed_update(self.bot, update, db=self.db, admin_ids=[], analytics=self.analytics)
 
+    async def test_non_admin_giveaway_callback_is_not_intercepted_by_finance(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        db=SimpleNamespace(get_giveaway_session_by_id=Mock(return_value={'status':'announced'}),
+                           add_giveaway_participant=Mock(return_value=True))
+        before=len(self.session.calls)
+        await self.dp.feed_update(self.bot,self.update(callback='giveaway_join_123',user=42),db=db,admin_ids=[])
+        calls=self.session.calls[before:]
+        db.add_giveaway_participant.assert_called_once()
+        answers=[c.text for c in calls if c.__api_method__=='answerCallbackQuery']
+        self.assertEqual(len(answers),1)
+        self.assertIn('участвуете',answers[0])
+        self.assertFalse(any('администратору' in s for s in answers))
+
+    async def test_closed_giveaway_stays_closed_for_subscriber(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        db=SimpleNamespace(get_giveaway_session_by_id=Mock(return_value={'status':'done'}),
+                           add_giveaway_participant=Mock())
+        await self.dp.feed_update(self.bot,self.update(callback='giveaway_join_123'),db=db,admin_ids=[])
+        db.add_giveaway_participant.assert_not_called()
+
+    async def test_booking_list_uses_current_size_not_old_confirmation(self):
+        from types import SimpleNamespace
+        row={'id':1,'status':'confirmed','team_name':'Волосик','team_size':11,'confirmed_count':5,
+             'player_names':'5 человек','captain_name':'Test','phone':'synthetic'}
+        db=SimpleNamespace(get_event_by_id=lambda _: {'title':'Game','event_date':'2026-10-25'},
+                           get_registrations_for_event_full=lambda _: [row])
+        await self.dp.feed_update(self.bot,self.update(callback='view_regs_51'),db=db,admin_ids=[42])
+        messages=[c.text for c in self.session.calls if c.__api_method__=='sendMessage']
+        self.assertTrue(any('Волосик 11' in t and 'Итого: 11' in t for t in messages))
+
     async def test_reports_access_arguments_button_and_active_fsm(self):
         from states import RegistrationState
         self.db.db_path = self.business.execute('PRAGMA database_list').fetchone()[2]

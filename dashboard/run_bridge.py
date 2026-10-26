@@ -11,14 +11,21 @@ import subprocess
 import sys
 import threading
 from bridge import Bridge,handler_for
+from release_backup import release_archive
 
 def main():
     bridge=Bridge(os.environ['DB_PATH'],os.environ['DASHBOARD_BRIDGE_TOKEN'],os.environ.get('DASHBOARD_ANALYTICS_PATH'))
     child=[None]
-    http=ThreadingHTTPServer(('0.0.0.0',int(os.environ.get('PORT','8080'))),handler_for(bridge,lambda:child[0] is not None and child[0].poll() is None))
     entry=os.environ.get('DASHBOARD_BOT_ENTRY','app.py')
     if entry not in ('app.py','finance_preview.py'):
         raise ValueError('Unsupported bot entry point')
+    archive=None
+    backup_token=os.environ.get('RELEASE_BACKUP_TOKEN')
+    if entry=='app.py' and os.environ.get('RAILWAY_ENVIRONMENT_NAME')=='production':
+        if not backup_token or len(backup_token)<32:
+            raise ValueError('A separate release backup secret is required')
+        archive=release_archive(os.environ['DB_PATH'],'/data/release-backups')
+    http=ThreadingHTTPServer(('0.0.0.0',int(os.environ.get('PORT','8080'))),handler_for(bridge,lambda:child[0] is not None and child[0].poll() is None,backup_path=archive,backup_token=backup_token))
     child[0]=subprocess.Popen([sys.executable,str(Path(__file__).resolve().parents[1]/entry)])
     def stop(signum,frame):
         if child[0].poll() is None:child[0].send_signal(signum)

@@ -1,5 +1,13 @@
 # Dashboard, attribution and attendance release
 
+## October 26 fixes
+
+Finance authorization is scoped to `af:` callbacks, so subscriber giveaway buttons are never intercepted by admin-only finance checks. Closed giveaways still reject participation.
+
+The admin booking and restaurant lists now use current `team_size`; an older conflicting reminder response is labeled separately. Future size edits update existing positive confirmations in the same transaction, and a new positive confirmation updates the current booking. Declines and manual attendance/payment ledgers stay separate. No historical attendance or payment reconciliation is performed.
+
+Production launcher makes integrity-checked SQLite Backup API copies before opening the bot and serves their ZIP only through a separate `RELEASE_BACKUP_TOKEN` at `/ops/release-backup`. The dashboard's `BOT_BRIDGE_TOKEN` cannot fetch backups. Backups must be downloaded and SHA256 checked outside Railway during release verification; do not publish or commit them. Staging supports `RELEASE_SMOKE_TEST=1` to create only a fresh synthetic game and check the complete payment/save/export path, including duplicate confirmation.
+
 Based on production e276b59f, preserving its count-only payment flow.
 
 ## Features

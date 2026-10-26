@@ -484,11 +484,10 @@ async def bulk_payment(message, state: FSMContext, db):
 def create_router():
     router = Router(name='attendance_finance')
     router.message.filter(AdminPrivate())
-    router.callback_query.filter(AdminPrivate())
     router.message.register(entry, F.text == '👥 Явка')
     router.message.register(entry, Command('attendance'))
     router.message.register(cancel_message, StateFilter(FinanceState), Command('cancel'))
-    router.callback_query.register(callback, F.data.startswith('af:'))
+    router.callback_query.register(callback, F.data.startswith('af:'), AdminPrivate())
     router.message.register(price_value, StateFilter(FinanceState.price_amount), F.text)
     router.message.register(bulk_payment, StateFilter(FinanceState.bulk,FinanceState.bulk_confirm), F.text)
     router.message.register(value, StateFilter(FinanceState.value, FinanceState.amount, FinanceState.confirm))

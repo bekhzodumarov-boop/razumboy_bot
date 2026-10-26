@@ -21,11 +21,19 @@ class Bridge:
             self.cached=snapshot(self.db_path,analytics_path=self.analytics_path)
             self.cached_at=time.monotonic();return self.cached
 
-def handler_for(bridge, healthy=lambda:True):
+def handler_for(bridge, healthy=lambda:True, *, backup_path=None, backup_token=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def do_GET(self):
             path=urlsplit(self.path).path
+            if path=='/ops/release-backup':
+                header=self.headers.get('Authorization') or ''
+                if not backup_token or not backup_path or not hmac.compare_digest(header.encode(),('Bearer '+backup_token).encode()):
+                    self.send_error(404)
+                    return
+                raw=backup_path.read_bytes()
+                self.send_response(200);self.send_header('Content-Type','application/zip');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+                return
             if path=='/health':
                 status=200 if healthy() else 503;body={'ok':status==200}
             elif path!='/snapshot':status=404;body={'error':'not_found'}

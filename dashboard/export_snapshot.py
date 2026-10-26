@@ -69,6 +69,7 @@ def snapshot(db_path, *, date_from=None, date_to=None, analytics_path=None):
         raise ValueError('Reversed date interval')
     uri = Path(db_path).resolve().as_uri() + '?mode=ro'
     events = []
+    source_keys = {}
     with closing(sqlite3.connect(uri, uri=True, timeout=2)) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA query_only=ON')
@@ -91,6 +92,12 @@ def snapshot(db_path, *, date_from=None, date_to=None, analytics_path=None):
                     raise ValueError('Invalid registration group size')
                 teams.append({'id': str(r['id']), 'name': r['team_name'], 'size': r['team_size'], 'kind': 'team'})
             finance = finance_snapshot(conn, e['id'], rows)
+            reg_columns = {r[1] for r in conn.execute('PRAGMA table_info(registrations)')}
+            user_columns = {r[1] for r in conn.execute('PRAGMA table_info(users)')}
+            if {'user_id','created_at'} <= reg_columns and {'id','telegram_id'} <= user_columns:
+                source_keys[e['id']] = {str(r['id']): (r['telegram_id'],r['created_at']) for r in conn.execute(
+                    '''SELECT r.id,u.telegram_id,r.created_at FROM registrations r JOIN users u ON u.id=r.user_id
+                       WHERE r.event_id=? AND r.status='confirmed' ''',(e['id'],))}
             events.append({'id': 'bot-'+str(e['id']), 'date': day, 'title': e['title'],
                            'format': 'Стреляй и пой' if 'СТРЕЛЯЙ' in e['title'].upper() else 'Разумбой',
                            'source': 'Telegram-бот; заявки, ручная явка и учет оплат',
@@ -107,6 +114,23 @@ def snapshot(db_path, *, date_from=None, date_to=None, analytics_path=None):
                 event['sources'] = {label: {k: counts.get(k, 0) for k in
                     ('bot_started', 'event_card_sent', 'registration_started', 'registration_completed')}
                     for label, counts in r['by_source'].items()}
+                # Exact user + game + near registration time. Never use an old
+                # attempt's label for a later booking, and never export user IDs.
+                keys = source_keys.get(int(event['id'][4:]), {})
+                for team in event['teams']:
+                    team['source'] = None
+                    if team['id'] not in keys:
+                        continue
+                    uid,created = keys[team['id']]
+                    try:
+                        booking_time = datetime.fromisoformat(created.replace('Z','+00:00'))
+                        if booking_time.tzinfo is None:
+                            booking_time=booking_time.replace(tzinfo=timezone.utc)
+                        matches=[a for a in r['completed'] if a['user_id']==uid and abs((datetime.fromisoformat(a['timestamp'].replace('Z','+00:00'))-booking_time).total_seconds())<=300]
+                        if len(matches)==1:
+                            team['source']=matches[0]['source']
+                    except (TypeError,ValueError):
+                        pass
             except (OSError, sqlite3.Error, ValueError, KeyError):
                 pass  # Missing analytics never hides registrations or becomes zero conversions.
     return {'schema_version': 1, 'as_of': datetime.now(timezone.utc).isoformat(timespec='seconds'),

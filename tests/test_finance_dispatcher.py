@@ -100,6 +100,31 @@ class FinanceFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('устарела',self.output())
         self.assertEqual(self.store.snapshot(50)['registered_players'],29)
 
+    async def test_bulk_single_confirmation_and_invalid_edit_revokes_old_button(self):
+        await self.open_game()
+        await self.feed(callback='af:bulk:50')
+        await self.feed(text='Отчаянные 5 - 350П\nВолосик 2 - 140У')
+        old=self.button('af:save:')
+        self.assertEqual(self.store.snapshot(50)['income_uzs'],0)
+        await self.feed(text='Отчаянные 5 - 400+200 переводом')
+        await self.feed(callback=old)
+        self.assertEqual(self.store.snapshot(50)['income_uzs'],0)
+        await self.feed(callback='af:bulk:50')
+        await self.feed(text='Отчаянные 5 - 350П\nВолосик 2 - 140У')
+        action=await self.confirm()
+        await self.feed(callback=action)
+        s=self.store.snapshot(50)
+        self.assertEqual((s['actual_players'],s['paid_players'],s['income_uzs']),(7,7,490000))
+
+    async def test_bulk_cancel_leaves_attendance_and_money_unchanged(self):
+        await self.open_game()
+        await self.feed(callback='af:bulk:50')
+        await self.feed(text='Отчаянные 5 - 350Н')
+        old=self.button('af:save:')
+        await self.feed(callback='af:cancel')
+        await self.feed(callback=old)
+        self.assertEqual(self.store.snapshot(50)['income_uzs'],0)
+
     async def test_private_admin_only_including_forged_callback_and_revoked_midform(self):
         before=len(self.transport.calls)
         await self.feed(text='👥 Явка',user=99)

@@ -57,3 +57,25 @@ class SnapshotTests(unittest.TestCase):
             self.assertNotIn('123456789',json.dumps(result))
             self.assertIsNone(snapshot(path,analytics_path=str(path)+'.missing')['events'][0]['funnel'])
 
+    def test_source_matches_account_game_and_booking_time_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'bot.sqlite'
+            fixture(path)
+            import sqlite3
+            with sqlite3.connect(path) as c:
+                c.execute('CREATE TABLE users(id INTEGER,telegram_id INTEGER)')
+                c.execute('INSERT INTO users VALUES(1,123456789)')
+                c.execute('ALTER TABLE registrations ADD COLUMN user_id INTEGER')
+                c.execute('ALTER TABLE registrations ADD COLUMN created_at TEXT')
+                c.execute("UPDATE registrations SET user_id=1,created_at='2026-10-01 00:00:00' WHERE id=1")
+                c.execute("UPDATE registrations SET user_id=1,created_at='2026-10-21 00:00:00' WHERE id=2")
+            journal=Analytics(str(path)+'.analytics.sqlite')
+            for name in ('registration_started','registration_completed'):
+                journal.record(name,123456789,key=name,event_id=50,attempt_id='one',source='instagram')
+            with journal.connect() as c:
+                c.execute("UPDATE funnel_events SET timestamp='2026-10-01T00:00:01.000Z'")
+            result=snapshot(path,analytics_path=journal.path)
+            self.assertEqual(result['events'][0]['teams'][0]['source'],'instagram')
+            self.assertIsNone(result['events'][0]['teams'][1]['source'])
+            self.assertNotIn('123456789',json.dumps(result))
+

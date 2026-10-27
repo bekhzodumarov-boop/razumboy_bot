@@ -57,24 +57,25 @@ def split_digest(text):
     return chunks
 
 
-def format_digest(db_path, *, event_id=None, now=None):
+def format_digest(db_path, *, event_id=None, now=None, all_time=False):
     """Read-only, aggregated output. No names, phones, IDs or raw analytics rows."""
     now = now or datetime.now(TZ)
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     now = now.astimezone(TZ)
     since = now - timedelta(hours=24)
+    window = 'за весь период' if all_time else 'за 24ч'
     lines = [
         "📊 <b>RAZUMBOY — отчёт по регистрациям</b>",
         f"🕒 {now:%d.%m.%Y %H:%M} (Ташкент)",
-        "Окно аналитики: последние 24 часа; заявки — на текущий момент.",
-        f"С {since:%d.%m.%Y %H:%M:%S} до {now:%d.%m.%Y %H:%M:%S} (Ташкент, конец не включён).",
+        "Окно аналитики: весь доступный период; заявки — на текущий момент." if all_time else "Окно аналитики: последние 24 часа; заявки — на текущий момент.",
+        f"До {now:%d.%m.%Y %H:%M:%S} (Ташкент, конец не включён)." if all_time else f"С {since:%d.%m.%Y %H:%M:%S} до {now:%d.%m.%Y %H:%M:%S} (Ташкент, конец не включён).",
     ]
     events = _events(db_path, now, event_id)
     if not events:
         lines.append("Открытых предстоящих игр не найдено." if event_id is None else "Игра не найдена.")
         return "\n".join(lines)
-    journal = str(db_path) + ".analytics.sqlite"
+    journal = os.getenv('DASHBOARD_ANALYTICS_PATH') or str(db_path) + ".analytics.sqlite"
     for event in events:
         eid = event["id"]
         confirmed, players, cancelled = event['teams'], event['players'], event['cancelled']
@@ -88,12 +89,12 @@ def format_digest(db_path, *, event_id=None, now=None):
             f"Отменённые заявки: {cancelled}",
         ])
         try:
-            r = build_report(journal, event_id=eid, date_from=since.isoformat(), date_to=now.isoformat())
+            r = build_report(journal, event_id=eid, date_from=None if all_time else since.isoformat(), date_to=now.isoformat())
             oc = r["outcome_counts"]
             lines.extend([
                 f"🔗 Запуски / карточки: {r['bot_starts']} / {r['event_cards_sent']}",
-                f"📝 Начали / завершили за 24ч: {r['registrations_started']} / {r['registrations_completed']}",
-                f"Исходы попыток с активностью за 24ч: открытые {oc['unfinished']}, отменённые {oc['cancelled']}, заменённые {oc['superseded']}, ошибки {oc['technical_errors']}, дубликаты {oc['duplicates']}, недоступные {oc['unavailable']}",
+                f"📝 Начали / завершили {window}: {r['registrations_started']} / {r['registrations_completed']}",
+                f"Исходы попыток с активностью {window}: открытые {oc['unfinished']}, отменённые {oc['cancelled']}, заменённые {oc['superseded']}, ошибки {oc['technical_errors']}, дубликаты {oc['duplicates']}, недоступные {oc['unavailable']}",
             ])
             if oc["unfinished"]:
                 from collections import Counter
@@ -109,7 +110,7 @@ def format_digest(db_path, *, event_id=None, now=None):
             log.warning("digest_analytics_read_failed")
             lines.append("⚠️ Аналитика временно недоступна; заявки отображены отдельно.")
     lines.append("\nℹ️ Заявки ≠ пришедшие команды; заявленные игроки ≠ оплаченные билеты. Начала — попытки, не уникальные люди. Метка ссылки ≠ доказанный рекламный источник. Открытые формы ≠ окончательный отказ. Отчёт не является когортной конверсией.")
-    lines.append("Подробно по любой игре, включая прошедшие: /report ID")
+    lines.append("Подробно: /report ID · весь период: /report ID all")
     return "\n".join(lines)
 
 

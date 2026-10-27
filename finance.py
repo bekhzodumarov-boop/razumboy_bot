@@ -297,6 +297,48 @@ class FinanceStore:
             self._audit(c,operation,t['event_id'],actor,'payment_breakdown',before,
                         {'team_id':team_id,'payments':payments,'ticket_uzs':settings['ticket_uzs']})
 
+    def preview_bulk(self, event_id, text):
+        from finance_bulk import parse_bulk
+        s = self.snapshot(event_id)
+        return {'event_id':event_id,'price_revision':s['settings'].get('revision'),
+                'ticket_uzs':s['settings'].get('ticket_uzs'),
+                'teams':parse_bulk(text,s['teams'],s['settings'].get('ticket_uzs'))}
+
+    def save_bulk(self, draft, actor, operation):
+        """All teams succeed together; a changed price/team invalidates the preview."""
+        with self.mutation(operation) as c:
+            if c is None:
+                return
+            event_id = draft['event_id']
+            setting = c.execute('SELECT * FROM finance_games WHERE event_id=?',(event_id,)).fetchone()
+            if setting is None or setting['revision']!=draft['price_revision'] or setting['ticket_uzs']!=draft['ticket_uzs']:
+                raise FinanceError('Цена изменилась. Подготовьте список заново')
+            price=setting['ticket_uzs']
+            if not draft['teams'] or len(draft['teams'])>50 or not price or price<=0:
+                raise FinanceError('Некорректный список')
+            before,after,seen=[],[],set()
+            for item in draft['teams']:
+                t=self._team(c,item['team_id'])
+                self._revision(t,item['revision'])
+                if t['event_id']!=event_id or t['id'] in seen:
+                    raise FinanceError('Команда из другой игры или повтор')
+                seen.add(t['id'])
+                actual=integer(item['actual_players'],500,'Явка')
+                payments=[]
+                for m in METHODS:
+                    players=integer(item['rows'].get(m,{}).get('players',0),500,'Оплатило')
+                    payments.append({'method':m,'players':players,'amount_uzs':integer(players*price,10**12,'Сумма')})
+                if sum(p['players'] for p in payments)>actual:
+                    raise FinanceError('Оплативших больше явки')
+                before.append({'team':t,'payments':[dict(p) for p in c.execute('SELECT * FROM finance_payments WHERE team_id=?',(t['id'],))]})
+                c.execute('UPDATE finance_teams SET actual_players=?,revision=revision+1 WHERE id=?',(actual,t['id']))
+                for p in payments:
+                    c.execute('''INSERT INTO finance_payments(team_id,method,players,amount_uzs) VALUES(?,?,?,?)
+                              ON CONFLICT(team_id,method) DO UPDATE SET players=excluded.players,amount_uzs=excluded.amount_uzs''',
+                              (t['id'],p['method'],p['players'],p['amount_uzs']))
+                after.append({'team_id':t['id'],'actual_players':actual,'payments':payments})
+            self._audit(c,operation,event_id,actor,'bulk_attendance_payments',before,after)
+
     def expense(self, expense_id, amount, status, revision, actor, operation):
         if status not in ('confirmed', 'excluded'):
             raise FinanceError('Неверный статус расхода')

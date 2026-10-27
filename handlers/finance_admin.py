@@ -12,11 +12,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from finance import FinanceStore, FinanceError, METHODS, export_csv, format_report, money, parse_integer, parse_payment_lines
+from admin_digest import split_digest
 
 log = logging.getLogger(__name__)
 
 
 class FinanceState(StatesGroup):
+    bulk = State()
+    bulk_confirm = State()
     quick = State()
     payment_confirm = State()
     price_choice = State()
@@ -83,7 +86,8 @@ async def game_page(message, db, event_id, page=0):
         nav.append(('▶️', f'af:g:{event_id}:{page+1}'))
     if nav:
         buttons.append(nav)
-    buttons += [[('➕ Команда без заявки', f'af:newteam:{event_id}')],
+    buttons += [[('📝 Внести список оплат', f'af:bulk:{event_id}')],
+                [('➕ Команда без заявки', f'af:newteam:{event_id}')],
                 [('💵 Цена билета', f'af:price:{event_id}'), ('🧾 Расходы', f'af:expenses:{event_id}:0')],
                 [('🤝 Распределение прибыли', f'af:distributions:{event_id}:0')],
                 [('📊 Итоги игры', f'af:report:{event_id}'), ('📥 CSV', f'af:csv:{event_id}')],
@@ -261,12 +265,14 @@ async def callback(callback, state: FSMContext, db):
         if action == 'save':
             data = await state.get_data()
             d = data.get('finance_draft')
-            if await state.get_state() not in (FinanceState.confirm.state, FinanceState.payment_confirm.state) or not d or not secrets.compare_digest(d['nonce'], parts[2]):
+            if await state.get_state() not in (FinanceState.confirm.state, FinanceState.payment_confirm.state, FinanceState.bulk_confirm.state) or not d or not secrets.compare_digest(d['nonce'], parts[2]):
                 raise FinanceError('Эта кнопка устарела. Откройте карточку заново')
             actor, op = callback.from_user.id, 'finance:'+d['nonce']
             kind = d['kind']
             if kind == 'attendance':
                 await store_call(db, 'attendance', d['team_id'], d['players'], d['revision'], actor, op)
+            elif kind == 'bulk':
+                await store_call(db, 'save_bulk', d['bulk'], actor, op)
             elif kind == 'breakdown':
                 await store_call(db, 'batch_payment', d['team_id'], d['rows'], d['total'], d['revision'], d['price_revision'], actor, op)
             elif kind == 'expense':
@@ -283,6 +289,8 @@ async def callback(callback, state: FSMContext, db):
             await callback.answer('Сохранено')
             if kind == 'breakdown':
                 await callback.message.answer('✅ Разбивка оплат подтверждена и сохранена. Итоги игры обновлены')
+            if kind == 'bulk':
+                await callback.message.answer('✅ Явка и оплаты списка сохранены вместе. Итоги игры обновлены')
             if kind in ('attendance', 'breakdown'):
                 await team_page(callback.message, db, d['team_id'], state)
             elif kind in ('expense', 'expense_kind', 'rename', 'cost', 'distribution'):
@@ -309,6 +317,13 @@ async def callback(callback, state: FSMContext, db):
                 await price_page(callback.message,state,db,ident)
             else:
                 await game_page(callback.message, db, ident, page)
+        elif action == 'bulk':
+            await state.set_state(FinanceState.bulk)
+            await state.set_data({'finance_bulk_event':ident})
+            await callback.message.answer('Отправьте список одним сообщением:\n<code>Отчаянные 5 - 280П+70Н\nПраздничный волосик 2 - 140У</code>\n'
+                'Число после названия — фактическая явка. Суммы — в тысячах сум. У — Uzum, П — Payme, К — Click, Н — наличные, «переводом» — на карту. '
+                'Число оплативших рассчитывается по цене игры. Неуказанные способы обнуляются у перечисленных команд; остальные команды не меняются. '
+                'Сначала покажу расчет, затем одно подтверждение. /cancel — отменить',reply_markup=kb([[('🔙 К игре',f'af:g:{ident}')]]))
         elif action == 't':
             await team_page(callback.message, db, ident, state)
         elif action in ('expenses','distributions'):
@@ -436,15 +451,45 @@ async def quick_payment(message, state: FSMContext, db):
         await message.answer('Не удалось подготовить расчет. Ничего не сохранено. Повторите ввод')
 
 
+async def bulk_payment(message, state: FSMContext, db):
+    event_id=(await state.get_data()).get('finance_bulk_event')
+    await state.set_state(FinanceState.bulk)
+    await state.set_data({'finance_bulk_event':event_id})
+    if not event_id:
+        await state.clear()
+        await message.answer('Откройте игру и нажмите «Внести список оплат»')
+        return
+    try:
+        result=await store_call(db,'preview_bulk',event_id,message.text)
+        lines=['<b>Проверка списка. Пока не сохранено.</b>',f"Цена: {money(result['ticket_uzs'])}"]
+        for t in result['teams']:
+            paid=sum(p['players'] for p in t['rows'].values())
+            lines += ['',f"<b>{esc(t['name'])}</b> · явка {t['actual_players']}"]
+            lines += [f"{label}: {t['rows'][m]['players']} чел. / {money(t['rows'][m]['players']*result['ticket_uzs'])}" for m,label in METHODS.items()]
+            lines.append(f"Итого оплатило: {paid} / {money(paid*result['ticket_uzs'])}. Без отметки оплаты: {t['actual_players']-paid}")
+        lines += ['','Подтверждение заменит явку и все способы оплаты только перечисленных команд.']
+        nonce=secrets.token_hex(8)
+        await state.set_state(FinanceState.bulk_confirm)
+        await state.set_data({'finance_bulk_event':event_id,'finance_draft':{'kind':'bulk','event_id':event_id,'bulk':result,'nonce':nonce}})
+        parts=split_digest('\n'.join(lines))
+        for i,part in enumerate(parts):
+            await message.answer(part,reply_markup=kb([[('✅ Подтвердить список',f'af:save:{nonce}'),('Отмена','af:cancel')]]) if i==len(parts)-1 else None)
+    except FinanceError as error:
+        await message.answer(esc(error)+'\nНичего не сохранено. Исправьте список и отправьте заново или /cancel')
+    except sqlite3.Error:
+        log.warning('finance_storage_unavailable')
+        await message.answer('Не удалось прочитать учет. Ничего не сохранено')
+
+
 def create_router():
     router = Router(name='attendance_finance')
     router.message.filter(AdminPrivate())
-    router.callback_query.filter(AdminPrivate())
     router.message.register(entry, F.text == '👥 Явка')
     router.message.register(entry, Command('attendance'))
     router.message.register(cancel_message, StateFilter(FinanceState), Command('cancel'))
-    router.callback_query.register(callback, F.data.startswith('af:'))
+    router.callback_query.register(callback, F.data.startswith('af:'), AdminPrivate())
     router.message.register(price_value, StateFilter(FinanceState.price_amount), F.text)
+    router.message.register(bulk_payment, StateFilter(FinanceState.bulk,FinanceState.bulk_confirm), F.text)
     router.message.register(value, StateFilter(FinanceState.value, FinanceState.amount, FinanceState.confirm))
     router.message.register(quick_payment, StateFilter(FinanceState.quick,FinanceState.payment_confirm), F.text)
     return router

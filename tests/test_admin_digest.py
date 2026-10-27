@@ -107,6 +107,18 @@ class DigestTests(unittest.TestCase):
             self.assertIn('временно недоступна', text)
             self.assertIn('6 заявленных', text)
 
+    def test_all_time_includes_history_outside_daily_window(self):
+        journal = Analytics(self.path + '.analytics.sqlite')
+        for name in ('registration_started','registration_completed'):
+            journal.record(name,123456789,key=name,event_id=50,attempt_id='old',source='instagram')
+        with journal.connect() as conn:
+            conn.execute("UPDATE funnel_events SET timestamp='2026-10-01T00:00:00.000Z'")
+        self.assertIn('24ч: 0 / 0', format_digest(self.path, event_id=50, now=self.now))
+        text = format_digest(self.path,event_id=50,now=self.now,all_time=True)
+        self.assertIn('за весь период: 1 / 1',text)
+        self.assertIn('instagram: 1 нач., 1 заверш.',text)
+        self.assertNotIn('123456789',text)
+
     def test_long_html_split_and_uri_special_characters(self):
         with closing(sqlite3.connect(self.path)) as db, db:
             db.executemany('INSERT INTO events VALUES(?,?,?,?,?,?)',

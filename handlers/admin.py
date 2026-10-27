@@ -119,14 +119,18 @@ async def admin_funnel_digest(message: Message, db, admin_ids: list[int], comman
     if not is_admin(message.from_user.id, admin_ids):
         await message.answer("У вас нет доступа к отчётам.")
         return
-    argument = command.args.strip() if command and command.args else None
-    if argument and (not argument.isascii() or not argument.isdigit() or len(argument) > 19
-                     or not 0 < int(argument) < 2**63):
-        await message.answer('Использование: /report или /report ID игры')
+    args = command.args.split() if command and command.args else []
+    all_time = bool(args and args[-1].lower() == 'all')
+    if all_time:
+        args.pop()
+    argument = args[0] if len(args) == 1 else None
+    if len(args) > 1 or (argument and (not argument.isascii() or not argument.isdigit() or len(argument) > 19
+                     or not 0 < int(argument) < 2**63)):
+        await message.answer('Использование: /report · /report ID · /report ID all')
         return
     try:
         text = await asyncio.to_thread(format_digest, db.db_path,
-                                       event_id=int(argument) if argument else None)
+                                       event_id=int(argument) if argument else None, all_time=all_time)
         for part in split_digest(text):
             await message.answer(part, parse_mode='HTML')
     except Exception:
@@ -496,26 +500,27 @@ async def view_registrations(callback: CallbackQuery, db, admin_ids: list[int]):
     for i, r in enumerate(teams, 1):
         if r["confirmed_count"] is not None:
             icon = "✅"
-            count = r["confirmed_count"]
+            count = r["team_size"]
         else:
             icon = "⏳"
             count = r["team_size"]
         total_players += count
-        lines.append(f"{icon}{i}. {r['team_name']} {count} {r['captain_name']} {r['phone']}")
+        previous = f" (в прежнем ответе: {r['confirmed_count']})" if r['confirmed_count'] is not None and r['confirmed_count'] != count else ''
+        lines.append(f"{icon}{i}. {r['team_name']} {count}{previous} {r['captain_name']} {r['phone']}")
 
     if solos:
         lines.append(f"\n<b>👤 Игроки без команд:</b>")
         for i, r in enumerate(solos, 1):
             if r["confirmed_count"] is not None:
                 icon = "✅"
-                count = r["confirmed_count"]
+                count = r["team_size"]
             else:
                 icon = "⏳"
                 count = r["team_size"]
             total_players += count
             lines.append(f"{icon}{i}. {r['captain_name']} — {count} чел. {r['phone']}")
 
-    lines.append(f"\n<b>Итого: {total_players}</b>")
+    lines.append(f"\n<b>Итого: {total_players}</b> (текущие заявки, не фактическая явка)")
 
     not_coming = (
         [(r['team_name'], r) for r in declined_teams] +
@@ -591,7 +596,7 @@ async def restaurant_list(callback: CallbackQuery, db, admin_ids: list[int]):
     for i, r in enumerate(teams, 1):
         confirmed = r["confirmed_count"] is not None
         icon = "✅" if confirmed else "⏳"
-        count = r["confirmed_count"] if confirmed else r["team_size"]
+        count = r["team_size"]
         total += count
         lines.append(f"{icon}{i}. {r['team_name']} — {count} чел.")
 
@@ -601,7 +606,7 @@ async def restaurant_list(callback: CallbackQuery, db, admin_ids: list[int]):
         for r in solos:
             confirmed = r["confirmed_count"] is not None
             icon = "✅" if confirmed else "⏳"
-            count = r["confirmed_count"] if confirmed else r["team_size"]
+            count = r["team_size"]
             total += count
             lines.append(f"{icon} {count} чел.")
 

@@ -131,6 +131,9 @@ async def main():
     try:
         me = await bot.get_me()
         check_preview_identity(me.username or '',os.getenv('RAILWAY_ENVIRONMENT_NAME',''),config.db_path)
+        if os.getenv('RELEASE_SMOKE_TEST')=='1':
+            from dashboard.smoke import run
+            run(config.db_path)
         if not config.admin_ids:
             raise ValueError('Preview requires configured admin recipients')
         event_id = await asyncio.to_thread(seed_demo,config.db_path)

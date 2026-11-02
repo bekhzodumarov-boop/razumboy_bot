@@ -7,7 +7,7 @@ import json
 import subprocess
 import sys
 
-from analytics import Analytics, parse_event_link, report
+from analytics import Analytics, parse_event_link, parse_event_attribution, build_event_link, report
 
 
 class ReportTests(unittest.TestCase):
@@ -138,6 +138,49 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(parse_event_link('event_50_src_private-name'), (50, 'unknown'))
         for invalid in ('event_0', 'event_-50', 'event_50_src_+998901234567', 'event_50junk', 'event_'+'9'*100):
             self.assertEqual(parse_event_link(invalid), (None, 'unknown'))
+
+    def test_campaign_links_validation_and_telegram_length(self):
+        for source in ('instagram', 'facebook'):
+            link = build_event_link(50, source, '120255100461340667')
+            payload = link.split('start=')[1]
+            self.assertEqual(parse_event_attribution(payload), (50, source, '120255100461340667'))
+        longest = build_event_link(10**18-1, 'instagram', '9'*20).split('start=')[1]
+        self.assertLessEqual(len(longest), 64)
+        self.assertEqual(parse_event_attribution(longest), (10**18-1, 'instagram', '9'*20))
+        self.assertEqual(parse_event_link('event_50_src_old_tag'), (50, 'unknown'))
+        for payload in ('event_50_src_instagram_cmp_private-name', 'event_50_src_facebook_cmp_0',
+                        'event_50_src_facebook_cmp_'+'1'*21, 'x'*65):
+            self.assertEqual(parse_event_attribution(payload), (None, 'unknown', None))
+        for source, campaign in [('facebook', 'private-name'), ('instagram', '0'), ('unknown', '123')]:
+            with self.assertRaises(ValueError):
+                build_event_link(50, source, campaign)
+
+    def test_legacy_campaign_column_readonly_and_idempotent_migration(self):
+        self.event('bot_started')
+        with self.journal.connect() as conn:
+            conn.execute('ALTER TABLE funnel_events DROP COLUMN campaign_id')
+        before = self.path.read_bytes()
+        out = report(self.path)
+        self.assertIsNone(out['by_campaign'][0]['campaign_id'])
+        self.assertEqual(before, self.path.read_bytes())
+        Analytics(self.path)
+        Analytics(self.path)
+        self.assertEqual(report(self.path)['bot_starts'], 1)
+
+    def test_campaign_filters_use_attempt_start_and_cutoff(self):
+        self.journal.record('registration_started', 42, key='a', attempt_id='a', event_id=50,
+                            source='facebook', campaign_id='123')
+        self.journal.record('registration_completed', 42, key='b', attempt_id='a', event_id=50,
+                            source='instagram', campaign_id='456')
+        out = report(self.path, source='facebook', campaign_id='123')
+        self.assertEqual(out['registrations_completed'], 1)
+        self.assertEqual(report(self.path, campaign_id='456')['registrations_completed'], 0)
+        with self.journal.connect() as conn:
+            conn.execute("UPDATE funnel_events SET timestamp='2026-11-01T00:00:00Z' WHERE dedup_key='a'")
+            conn.execute("UPDATE funnel_events SET timestamp='2026-11-02T00:00:00Z' WHERE dedup_key='b'")
+        self.assertEqual(report(self.path, campaign_id='123', date_to='2026-11-02')['registrations_completed'], 0)
+        with self.assertRaises(ValueError):
+            report(self.path, campaign_id='private-name')
 
 
 if __name__ == '__main__':

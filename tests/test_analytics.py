@@ -97,6 +97,45 @@ class FunnelTests(unittest.IsolatedAsyncioTestCase):
         for secret in ['private-team', 'private-name', '+998901234567', 'private-comment']:
             self.assertNotIn(secret, journal)
 
+    async def test_platform_and_campaign_survive_edit_until_completion(self):
+        for source, campaign in [('instagram', '120255100461340667'),
+                                 ('facebook', '120255100461340667'),
+                                 ('instagram', '120255133180690667')]:
+            self.business.execute('DELETE FROM registrations')
+            self.business.commit()
+            await self.call(common.cmd_start, self.message(f'/start event_50_src_{source}_cmp_{campaign}'))
+            await self.fill()
+            await self.call(reg.edit_registration, self.callback('edit_registration'))
+            for fn, text in [(reg.reg_team_name, 'Team'), (reg.reg_team_size, '5'),
+                             (reg.reg_captain_name, 'Captain'), (reg.reg_phone, '+998901234567'),
+                             (reg.reg_comment, '-')]:
+                await self.call(fn, self.message(text))
+            await self.call(reg.confirm_registration, self.callback('confirm_registration'))
+            out = report(self.path, source=source, campaign_id=campaign)
+            self.assertEqual(out['registrations_completed'], 1)
+            self.assertEqual(out['completed'][0]['campaign_id'], campaign)
+        self.assertEqual(report(self.path)['registrations_completed'], 3)
+
+    async def test_campaign_does_not_leak_to_another_game_or_untagged_start(self):
+        from analytics import begin_attempt
+        await self.call(common.cmd_start, self.message('/start event_50_src_facebook_cmp_123'))
+        await begin_attempt(self.state, self.analytics, 42, 51)
+        self.assertIsNone((await self.state.get_data())['attempt_campaign_id'])
+        self.assertEqual((await self.state.get_data())['attempt_source'], 'direct')
+        await self.state.clear()
+        await self.call(common.cmd_start, self.message('/start event_50_src_instagram_cmp_123'))
+        await self.call(common.cmd_start, self.message('/start event_50'))
+        await begin_attempt(self.state, self.analytics, 42, 50)
+        self.assertIsNone((await self.state.get_data())['attempt_campaign_id'])
+
+    async def test_new_ad_link_does_not_rewrite_in_progress_attempt(self):
+        await self.call(common.cmd_start, self.message('/start event_50_src_instagram_cmp_123'))
+        await self.fill()
+        await self.call(common.cmd_start, self.message('/start event_50_src_facebook_cmp_456'))
+        await self.call(reg.confirm_registration, self.callback('confirm_registration'))
+        completed = report(self.path)['completed'][0]
+        self.assertEqual((completed['source'], completed['campaign_id']), ('instagram', '123'))
+
     async def test_repeat_start_keeps_attempt_and_answers(self):
         await self.call(reg.register_from_event, self.callback('register_event_50'))
         await self.call(reg.reg_team_name, self.message('Test team'))

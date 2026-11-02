@@ -146,7 +146,7 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
             await self.feed(self.update(text=text))
 
     async def test_real_filters_middleware_source_and_concurrent_confirmation(self):
-        await self.feed(self.update(text='/start event_50_src_instagram'))
+        await self.feed(self.update(text='/start event_50_src_instagram_cmp_120255100461340667'))
         await asyncio.gather(self.feed(self.update(callback='register_event_50')),
                              self.feed(self.update(callback='register_event_50')))
         await self.fill(start=False)
@@ -229,7 +229,7 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
     async def test_integrated_contact_profile_resume_and_private_report_50(self):
         from states import SubscribeState
         self.use_integrated_database()
-        await self.feed(self.update(text='/start event_50_src_instagram'))
+        await self.feed(self.update(text='/start event_50_src_facebook_cmp_120255100461340667'))
         await self.feed(self.update(callback='fill_profile'))
         await self.feed(self.update(text='Private profile'))
         await self.feed(self.update(contact={'phone_number': '998901234567', 'first_name': 'Private', 'user_id': 99}))
@@ -247,12 +247,13 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
                              self.feed(self.update(callback='confirm_registration')))
         with self.db._connect() as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM registrations').fetchone()[0], 1)
-        self.assertEqual(report(self.path, source='instagram')['registrations_completed'], 1)
+        self.assertEqual(report(self.path, source='facebook', campaign_id='120255100461340667')['registrations_completed'], 1)
         before = len(self.session.calls)
         await self.dp.feed_update(self.bot, self.update(text='/report 50'), db=self.db,
                                   admin_ids=[42], analytics=self.analytics)
         text = '\n'.join(getattr(call, 'text', '') or '' for call in self.session.calls[before:])
-        for value in ('#50', '1/12 команд', '5 заявленных', '24ч: 1 / 1', 'instagram: 1 нач., 1 заверш.'):
+        for value in ('#50', '1/12 команд', '5 заявленных', '24ч: 1 / 1', 'facebook: 1 нач., 1 заверш.',
+                      'Кампания facebook / 120255100461340667: 1 запусков, 1 нач., 1 заверш.'):
             self.assertIn(value, text)
         for private in ('Private profile', 'Private team', 'Private captain', '+998901234567'):
             self.assertNotIn(private, text)
@@ -309,7 +310,7 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report(self.path)['registrations_started'], 1)
 
     async def test_restart_supersedes_and_stale_button_cannot_reset_again(self):
-        await self.feed(self.update(text='/start event_50_src_instagram'))
+        await self.feed(self.update(text='/start event_50_src_instagram_cmp_120255100461340667'))
         await self.feed(self.update(callback='register_event_50'))
         await self.feed(self.update(text='Synthetic'))
         old = (await self.context().get_data())['attempt_id']
@@ -321,6 +322,7 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(old, new['attempt_id'])
         self.assertNotIn('team_name', new)
         self.assertEqual(new['attempt_source'], 'instagram')
+        self.assertEqual(new['attempt_campaign_id'], '120255100461340667')
         await self.feed(self.update(callback=restart))
         self.assertEqual(await self.context().get_data(), new)
         out = report(self.path)
@@ -328,6 +330,7 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out['outcome_counts']['superseded'], 1)
         self.assertEqual(out['outcome_counts']['unfinished'], 1)
         self.assertEqual(out['technical_error_events'], 0)
+        self.assertEqual(report(self.path, campaign_id='120255100461340667')['registrations_started'], 2)
         self.assertEqual(out['steps'], {'team_name': 1})
         await self.feed(self.update(callback='reg_cancel'))
         self.assertEqual(report(self.path)['outcome_counts']['cancelled'], 1)

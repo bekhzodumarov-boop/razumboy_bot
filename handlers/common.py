@@ -1,5 +1,5 @@
 import datetime
-from analytics import parse_event_link, safe_source
+from analytics import parse_event_attribution, safe_source, safe_campaign
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton as KB
@@ -130,15 +130,17 @@ async def cmd_cancel(message: Message, state: FSMContext, admin_ids: list[int]):
 async def cmd_start(message: Message, db, admin_ids: list[int], analytics=None, state: FSMContext = None):
     user = message.from_user
     parts = message.text.split() if message.text else []
-    analytics_event_id, traffic_source = parse_event_link(parts[1] if len(parts) > 1 else '')
+    analytics_event_id, traffic_source, campaign_id = parse_event_attribution(parts[1] if len(parts) > 1 else '')
     if len(parts) == 1:
         traffic_source = 'direct'
     if state:
-        await state.update_data(traffic_event_id=analytics_event_id, traffic_source=traffic_source)
+        await state.update_data(traffic_event_id=analytics_event_id, traffic_source=traffic_source,
+                                traffic_campaign_id=campaign_id)
     if analytics:
         analytics.record('bot_started', user.id,
                          event_id=analytics_event_id,
                          source=traffic_source,
+                         campaign_id=campaign_id,
                          key=f'start:{message.chat.id}:{message.message_id}')
 
     # Проверяем: новый пользователь? (до upsert_user)
@@ -240,6 +242,7 @@ async def cmd_start(message: Message, db, admin_ids: list[int], analytics=None, 
                 if analytics:
                     analytics.record('event_card_sent', user.id, event_id=event_id,
                                      source=traffic_source,
+                                     campaign_id=campaign_id,
                                      step='card', key=f'card:{message.chat.id}:{message.message_id}')
                 await _remind_profile_if_missing(message, db)
                 return
@@ -306,6 +309,7 @@ async def show_event_detail(callback: CallbackQuery, db, analytics=None, state: 
         traffic_source = context.get('traffic_source', 'direct') if context.get('traffic_event_id') == event_id else 'direct'
         analytics.record('event_card_sent', callback.from_user.id, event_id=event_id,
                          source=traffic_source,
+                         campaign_id=context.get('traffic_campaign_id') if context.get('traffic_event_id') == event_id else None,
                          step='card', key=f'card_callback:{callback.id}')
     await callback.answer()
 
@@ -490,7 +494,8 @@ async def _subscribe_phone_value(message, state, db, bot, admin_ids, value):
     traffic_event = data.get('traffic_event_id')
     if type(traffic_event) is int and 0 < traffic_event < 2**63:
         await state.update_data(traffic_event_id=traffic_event,
-                                traffic_source=safe_source(data.get('traffic_source')))
+                                traffic_source=safe_source(data.get('traffic_source')),
+                                traffic_campaign_id=safe_campaign(data.get('traffic_campaign_id')))
     await message.answer(
         "✅ <b>Готово! Добро пожаловать в клуб Разумбой!</b>\n\n"
         "Вы будете получать анонсы игр и участвовать в розыгрышах! 🧠🎉",

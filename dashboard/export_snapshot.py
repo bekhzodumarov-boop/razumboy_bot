@@ -102,7 +102,7 @@ def snapshot(db_path, *, date_from=None, date_to=None, analytics_path=None):
                            'format': 'Стреляй и пой' if 'СТРЕЛЯЙ' in e['title'].upper() else 'Разумбой',
                            'source': 'Telegram-бот; заявки, ручная явка и учет оплат',
                            'attended': None, 'teams': teams, 'cancelled': cancelled, 'funnel': None,
-                           'finance': finance, 'sources': None})
+                           'finance': finance, 'sources': None, 'campaigns': None})
     # Existing analytics_report handles attempt history correctly. Only allowlisted aggregates leave this process.
     if analytics_path:
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -114,11 +114,16 @@ def snapshot(db_path, *, date_from=None, date_to=None, analytics_path=None):
                 event['sources'] = {label: {k: counts.get(k, 0) for k in
                     ('bot_started', 'event_card_sent', 'registration_started', 'registration_completed')}
                     for label, counts in r['by_source'].items()}
+                event['campaigns'] = [{'source': c['source'], 'campaign_id': c['campaign_id'],
+                    'events': {k: c['events'].get(k, 0) for k in
+                    ('bot_started', 'event_card_sent', 'registration_started', 'registration_completed')}}
+                    for c in r['by_campaign']]
                 # Exact user + game + near registration time. Never use an old
                 # attempt's label for a later booking, and never export user IDs.
                 keys = source_keys.get(int(event['id'][4:]), {})
                 for team in event['teams']:
                     team['source'] = None
+                    team['campaign_id'] = None
                     if team['id'] not in keys:
                         continue
                     uid,created = keys[team['id']]
@@ -129,6 +134,7 @@ def snapshot(db_path, *, date_from=None, date_to=None, analytics_path=None):
                         matches=[a for a in r['completed'] if a['user_id']==uid and abs((datetime.fromisoformat(a['timestamp'].replace('Z','+00:00'))-booking_time).total_seconds())<=300]
                         if len(matches)==1:
                             team['source']=matches[0]['source']
+                            team['campaign_id']=matches[0]['campaign_id']
                     except (TypeError,ValueError):
                         pass
             except (OSError, sqlite3.Error, ValueError, KeyError):

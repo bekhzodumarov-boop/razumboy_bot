@@ -106,6 +106,15 @@ def format_digest(db_path, *, event_id=None, now=None, all_time=False):
                             for label, events in sorted(by_source.items()) if events.get('registration_started',0) or events.get('registration_completed',0)]
             if source_parts:
                 lines.append("Метки: " + "; ".join(source_parts))
+            for campaign in r.get('by_campaign', []):
+                if campaign['source'] not in {'instagram', 'facebook'}:
+                    continue
+                counts = campaign['events']
+                label = campaign['campaign_id'] or 'без метки кампании'
+                lines.append(f"Кампания {_field(campaign['source'])} / {_field(label)}: "
+                             f"{counts.get('bot_started', 0)} запусков, "
+                             f"{counts.get('registration_started', 0)} нач., "
+                             f"{counts.get('registration_completed', 0)} заверш.")
         except (OSError, sqlite3.Error, ValueError, KeyError):
             log.warning("digest_analytics_read_failed")
             lines.append("⚠️ Аналитика временно недоступна; заявки отображены отдельно.")

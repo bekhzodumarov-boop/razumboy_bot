@@ -554,6 +554,7 @@ async def edit_registration(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.update_data(attempt_id=attempt_id,
                             attempt_source=data.get('attempt_source', 'unknown'),
+                            attempt_campaign_id=data.get('attempt_campaign_id'),
                             attempt_revision=data.get('attempt_revision', 0) + 1)
     if event_id:
         await state.update_data(event_id=event_id)

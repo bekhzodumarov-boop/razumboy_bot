@@ -71,11 +71,14 @@ class SnapshotTests(unittest.TestCase):
                 c.execute("UPDATE registrations SET user_id=1,created_at='2026-10-21 00:00:00' WHERE id=2")
             journal=Analytics(str(path)+'.analytics.sqlite')
             for name in ('registration_started','registration_completed'):
-                journal.record(name,123456789,key=name,event_id=50,attempt_id='one',source='instagram')
+                journal.record(name,123456789,key=name,event_id=50,attempt_id='one',source='facebook',campaign_id='120255100461340667')
             with journal.connect() as c:
                 c.execute("UPDATE funnel_events SET timestamp='2026-10-01T00:00:01.000Z'")
             result=snapshot(path,analytics_path=journal.path)
-            self.assertEqual(result['events'][0]['teams'][0]['source'],'instagram')
+            self.assertEqual(result['events'][0]['teams'][0]['source'],'facebook')
+            self.assertEqual(result['events'][0]['teams'][0]['campaign_id'],'120255100461340667')
+            self.assertEqual(result['events'][0]['campaigns'][0]['events']['registration_completed'],1)
             self.assertIsNone(result['events'][0]['teams'][1]['source'])
+            self.assertIsNone(result['events'][0]['teams'][1]['campaign_id'])
             self.assertNotIn('123456789',json.dumps(result))
 
